@@ -174,9 +174,11 @@ std::string RpcChannelImpl::saslEvaluateToken(RpcSaslProto & response, bool serv
     return token;
 }
 
+
 RpcAuth RpcChannelImpl::setupSaslConnection() {
+    //spin("/tmp/spin");
     RpcAuth retval;
-    RpcSaslProto negotiateRequest, response, msg;
+    RpcSaslProto negotiateRequest, response, msg, challengeResponse;
     negotiateRequest.set_state(RpcSaslProto_SaslState_NEGOTIATE);
     sendSaslMessage(&negotiateRequest, &response);
     bool done = false;
@@ -199,14 +201,14 @@ RpcAuth RpcChannelImpl::setupSaslConnection() {
                 std::string respToken;
                 RpcSaslProto_SaslAuth * respAuth = msg.add_auths();
                 respAuth->CopyFrom(*auth);
-                std::string chanllege;
+                std::string challenge;
 
                 if (auth->has_challenge()) {
-                    chanllege = auth->challenge();
+                    challenge = auth->challenge();
                     respAuth->clear_challenge();
                 }
 
-                respToken = saslClient->evaluateChallenge(chanllege);
+                respToken = saslClient->evaluateChallenge(challenge);
 
                 if (!respToken.empty()) {
                     msg.set_token(respToken);
@@ -233,7 +235,7 @@ RpcAuth RpcChannelImpl::setupSaslConnection() {
             if (!saslClient) {
                 retval = RpcAuth(AuthMethod::SIMPLE);
             } else {
-                saslEvaluateToken(response, true);
+                saslEvaluateToken(challengeResponse, true);
             }
 
             done = true;
@@ -244,8 +246,12 @@ RpcAuth RpcChannelImpl::setupSaslConnection() {
         }
 
         if (!done) {
+            bool doResponse = response.state() == RpcSaslProto_SaslState_CHALLENGE;
             response.Clear();
-            sendSaslMessage(&msg, &response);
+            if (doResponse)
+                sendSaslMessage(&msg, &challengeResponse);
+            else
+                sendSaslMessage(&msg, &response);
         }
     } while (!done);
 
@@ -526,7 +532,16 @@ void RpcChannelImpl::sendRequest(RpcRemoteCallPtr remote) {
     WriteBuffer buffer;
     assert(true == available);
     remote->serialize(key.getProtocol(), buffer);
-    sock->writeFully(buffer.getBuffer(0), buffer.getDataSize(0),
+    std::string data;
+    if (saslClient) {
+        data = saslClient->encode(buffer.getBuffer(0), buffer.getDataSize(0));
+    }
+    else {
+        int length = buffer.getDataSize(0);
+        data.resize(length);
+        memcpy(&data[0], buffer.getBuffer(0), length);
+    }
+    sock->writeFully(data.c_str(), data.length(),
                      key.getConf().getWriteTimeout());
     uint32_t id = remote->getIdentity();
     pendingCalls[id] = remote;
@@ -657,7 +672,12 @@ void RpcChannelImpl::sendConnectionHeader(const RpcAuth &auth) {
     buffer.write(static_cast<char>(RPC_HEADER_VERSION));
     buffer.write(static_cast<char>(0));  //for future feature
     buffer.write(static_cast<char>(auth.getProtocol()));
-    sock->writeFully(buffer.getBuffer(0), buffer.getDataSize(0),
+    std::string data;
+    int length = buffer.getDataSize(0);
+    data.resize(length);
+    memcpy(&data[0], buffer.getBuffer(0), length);
+
+    sock->writeFully(data.c_str(), data.length(),
                      key.getConf().getWriteTimeout());
 }
 
@@ -697,7 +717,16 @@ void RpcChannelImpl::sendConnectionContent(const RpcAuth & auth) {
     int size = wrapper.getLength();
     buffer.writeBigEndian(size);
     wrapper.writeTo(buffer);
-    sock->writeFully(buffer.getBuffer(0), buffer.getDataSize(0),
+    std::string data;
+    if (saslClient) {
+        data = saslClient->encode(buffer.getBuffer(0), buffer.getDataSize(0));
+    }
+    else {
+        int length = buffer.getDataSize(0);
+        data.resize(length);
+        memcpy(&data[0], buffer.getBuffer(0), length);
+    }
+    sock->writeFully(data.c_str(), data.length(),
                      key.getConf().getWriteTimeout());
     lastActivity = lastIdle = steady_clock::now();
 }

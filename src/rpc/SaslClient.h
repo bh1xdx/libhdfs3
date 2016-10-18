@@ -51,7 +51,14 @@ public:
 
     bool isComplete();
 
+    bool isPrivate();
+    bool isIntegrity();
+
+    std::string encode(const char *input, size_t input_len);
+    std::string decode(const char *input, size_t input_len);
+
 private:
+    int findPreferred(int possible);
     void initKerberos(const RpcSaslProto_SaslAuth & auth,
                       const std::string & principal);
     void initDigestMd5(const RpcSaslProto_SaslAuth & auth, const Token & token);
@@ -60,6 +67,8 @@ private:
     Gsasl * ctx;
     Gsasl_session * session;
     bool complete;
+    bool privacy;
+    bool integrity;
 };
 
 }

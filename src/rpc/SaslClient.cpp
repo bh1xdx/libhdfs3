@@ -42,6 +42,8 @@ SaslClient::SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
     complete(false) {
     int rc;
     ctx = NULL;
+    privacy = false;
+    integrity = false;
     RpcAuth method = RpcAuth(RpcAuth::ParseMethod(auth.method()));
     rc = gsasl_init(&ctx);
 
@@ -74,6 +76,7 @@ SaslClient::~SaslClient() {
     }
 }
 
+
 void SaslClient::initKerberos(const RpcSaslProto_SaslAuth & auth,
                               const std::string & principal) {
     int rc;
@@ -87,6 +90,11 @@ void SaslClient::initKerberos(const RpcSaslProto_SaslAuth & auth,
     gsasl_property_set(session, GSASL_SERVICE, auth.protocol().c_str());
     gsasl_property_set(session, GSASL_AUTHID, principal.c_str());
     gsasl_property_set(session, GSASL_HOSTNAME, auth.serverid().c_str());
+
+    gsasl_property_set(session, GSASL_QOP, "qop-conf");
+    //session->qop |= GSASL_QOP_AUTH;
+    //session->qop |= GSASL_QOP_AUTH_INT;
+    //session->qop |= GSASL_QOP_AUTH_CONF;
 }
 
 std::string Base64Encode(const std::string & in) {
@@ -125,6 +133,17 @@ void SaslClient::initDigestMd5(const RpcSaslProto_SaslAuth & auth,
     gsasl_property_set(session, GSASL_AUTHID, identifier.c_str());
     gsasl_property_set(session, GSASL_HOSTNAME, auth.serverid().c_str());
     gsasl_property_set(session, GSASL_SERVICE, auth.protocol().c_str());
+
+}
+
+int SaslClient::findPreferred(int possible) {
+    if (possible & GSASL_QOP_AUTH)
+        return GSASL_QOP_AUTH;
+    if (possible & GSASL_QOP_AUTH_INT)
+        return GSASL_QOP_AUTH_INT;
+    if (possible & GSASL_QOP_AUTH_CONF)
+        return GSASL_QOP_AUTH_CONF;
+    return GSASL_QOP_AUTH;
 }
 
 std::string SaslClient::evaluateChallenge(const std::string & challenge) {
@@ -132,6 +151,7 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
     char * output = NULL;
     size_t outputSize;
     std::string retval;
+
     rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
                     &outputSize);
 
@@ -152,13 +172,77 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
 
     if (rc == GSASL_OK) {
         complete = true;
+        if (challenge.length()) {
+            int qop = (int)challenge.c_str()[0];
+            int preferred = findPreferred(qop);
+            if (preferred & GSASL_QOP_AUTH_CONF) {
+                privacy = true;
+                integrity = true;
+            } else if (preferred & GSASL_QOP_AUTH_INT) {
+                integrity = true;
+            }
+            retval = "";
+        }
     }
 
     return retval;
 }
 
+std::string SaslClient::encode(const char *input, size_t input_len) {
+    std::string result;
+    if (!privacy && !integrity) {
+        result.resize(input_len);
+        memcpy(&result[0], input, input_len);
+        return result;
+    }
+    char *output=NULL;
+    size_t output_len;
+    int rc = gsasl_encode(session, input, input_len, &output, &output_len);
+    if (rc != GSASL_OK) {
+        THROW(AccessControlException, "Failed to encode wrapped data: %s", gsasl_strerror(rc));
+    }
+    if (output_len) {
+        result.resize(output_len);
+        memcpy(&result[0], output, output_len);
+        free(output);
+    }
+
+    return result;
+}
+
+std::string  SaslClient::decode(const char *input, size_t input_len) {
+    std::string result;
+    if (!privacy && !integrity) {
+        result.resize(input_len);
+        memcpy(&result[0], input, input_len);
+        return result;
+    }
+    char *output=NULL;
+    size_t output_len;
+    int rc = gsasl_decode(session, input, input_len, &output, &output_len);
+    if (rc != GSASL_OK) {
+        THROW(AccessControlException, "Failed to decode wrapped data: %s", gsasl_strerror(rc));
+    }
+    if (output_len) {
+        result.resize(output_len);
+        memcpy(&result[0], output, output_len);
+        free(output);
+    }
+
+    return result;
+}
+
+
 bool SaslClient::isComplete() {
     return complete;
+}
+
+bool SaslClient::isPrivate() {
+    return privacy;
+}
+
+bool SaslClient::isIntegrity() {
+    return integrity;
 }
 
 }
