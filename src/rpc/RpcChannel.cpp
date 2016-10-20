@@ -34,6 +34,7 @@
 #include "RpcContentWrapper.h"
 #include "RpcHeader.pb.h"
 #include "RpcHeader.pb.h"
+#include "datatransfer.pb.h"
 #include "server/RpcHelper.h"
 #include "Thread.h"
 #include "WriteBuffer.h"
@@ -167,21 +168,32 @@ std::string RpcChannelImpl::saslEvaluateToken(RpcSaslProto & response, bool serv
         }
 
         if (!token.empty()) {
-            THROW(AccessControlException, "Client generated spurious response");
+            if (!saslClient || !saslClient->isPrivate())
+                THROW(AccessControlException, "Client generated spurious response");
         }
     }
 
     return token;
 }
 
+void spin(const char* strname) {
+    bool stop = false;
+
+    while (!stop) {
+        if (access(strname, F_OK) != 0)
+            break;
+        ::sleep(1);
+    }
+
+}
 
 RpcAuth RpcChannelImpl::setupSaslConnection() {
-    //spin("/tmp/spin");
     RpcAuth retval;
-    RpcSaslProto negotiateRequest, response, msg, challengeResponse;
+    RpcSaslProto negotiateRequest, response, msg;
     negotiateRequest.set_state(RpcSaslProto_SaslState_NEGOTIATE);
     sendSaslMessage(&negotiateRequest, &response);
     bool done = false;
+    std::string payload;
 
     do {
         readOneResponse(false);
@@ -228,6 +240,7 @@ RpcAuth RpcChannelImpl::setupSaslConnection() {
             std::string token = saslEvaluateToken(response, false);
             msg.set_token(token);
             msg.set_state(RpcSaslProto_SaslState_RESPONSE);
+
             break;
         }
 
@@ -235,7 +248,7 @@ RpcAuth RpcChannelImpl::setupSaslConnection() {
             if (!saslClient) {
                 retval = RpcAuth(AuthMethod::SIMPLE);
             } else {
-                saslEvaluateToken(challengeResponse, true);
+                payload = saslEvaluateToken(response, true);
             }
 
             done = true;
@@ -246,17 +259,14 @@ RpcAuth RpcChannelImpl::setupSaslConnection() {
         }
 
         if (!done) {
-            bool doResponse = response.state() == RpcSaslProto_SaslState_CHALLENGE;
             response.Clear();
-            if (doResponse)
-                sendSaslMessage(&msg, &challengeResponse);
-            else
-                sendSaslMessage(&msg, &response);
+            sendSaslMessage(&msg, &response);
         }
     } while (!done);
 
     return retval;
 }
+
 
 void RpcChannelImpl::connect() {
     int sleep = 1;
@@ -533,7 +543,8 @@ void RpcChannelImpl::sendRequest(RpcRemoteCallPtr remote) {
     assert(true == available);
     remote->serialize(key.getProtocol(), buffer);
     std::string data;
-    if (saslClient) {
+    spin("/tmp/bar");
+    if (saslClient && false) {
         data = saslClient->encode(buffer.getBuffer(0), buffer.getDataSize(0));
     }
     else {
@@ -718,14 +729,10 @@ void RpcChannelImpl::sendConnectionContent(const RpcAuth & auth) {
     buffer.writeBigEndian(size);
     wrapper.writeTo(buffer);
     std::string data;
-    if (saslClient) {
-        data = saslClient->encode(buffer.getBuffer(0), buffer.getDataSize(0));
-    }
-    else {
-        int length = buffer.getDataSize(0);
-        data.resize(length);
-        memcpy(&data[0], buffer.getBuffer(0), length);
-    }
+    int length = buffer.getDataSize(0);
+    data.resize(length);
+    memcpy(&data[0], buffer.getBuffer(0), length);
+
     sock->writeFully(data.c_str(), data.length(),
                      key.getConf().getWriteTimeout());
     lastActivity = lastIdle = steady_clock::now();

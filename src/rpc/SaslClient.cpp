@@ -146,12 +146,12 @@ int SaslClient::findPreferred(int possible) {
     return GSASL_QOP_AUTH;
 }
 
+
 std::string SaslClient::evaluateChallenge(const std::string & challenge) {
     int rc;
     char * output = NULL;
     size_t outputSize;
     std::string retval;
-
     rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
                     &outputSize);
 
@@ -173,7 +173,8 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
     if (rc == GSASL_OK) {
         complete = true;
         if (challenge.length()) {
-            int qop = (int)challenge.c_str()[0];
+            std::string decoded = decode(challenge.c_str(), challenge.length());
+            int qop = (int)decoded.c_str()[0];
             int preferred = findPreferred(qop);
             if (preferred & GSASL_QOP_AUTH_CONF) {
                 privacy = true;
@@ -181,7 +182,6 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
             } else if (preferred & GSASL_QOP_AUTH_INT) {
                 integrity = true;
             }
-            retval = "";
         }
     }
 
@@ -190,7 +190,7 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
 
 std::string SaslClient::encode(const char *input, size_t input_len) {
     std::string result;
-    if (!privacy && !integrity) {
+    if ((!privacy && !integrity) || (!complete)) {
         result.resize(input_len);
         memcpy(&result[0], input, input_len);
         return result;
@@ -212,7 +212,7 @@ std::string SaslClient::encode(const char *input, size_t input_len) {
 
 std::string  SaslClient::decode(const char *input, size_t input_len) {
     std::string result;
-    if (!privacy && !integrity) {
+    if ((!privacy && !integrity) || (!complete)) {
         result.resize(input_len);
         memcpy(&result[0], input, input_len);
         return result;
