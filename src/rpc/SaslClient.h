@@ -69,6 +69,9 @@ private:
     bool complete;
     bool privacy;
     bool integrity;
+    const RpcSaslProto_SaslAuth theAuth;
+    const Token theToken;
+    const std::string thePrincipal;
 };
 
 }

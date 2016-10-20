@@ -39,7 +39,7 @@ namespace Internal {
 
 SaslClient::SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
                        const std::string & principal) :
-    complete(false) {
+    complete(false), theAuth(auth), theToken(token), thePrincipal(principal) {
     int rc;
     ctx = NULL;
     privacy = false;
@@ -91,10 +91,6 @@ void SaslClient::initKerberos(const RpcSaslProto_SaslAuth & auth,
     gsasl_property_set(session, GSASL_AUTHID, principal.c_str());
     gsasl_property_set(session, GSASL_HOSTNAME, auth.serverid().c_str());
 
-    gsasl_property_set(session, GSASL_QOP, "qop-conf");
-    //session->qop |= GSASL_QOP_AUTH;
-    //session->qop |= GSASL_QOP_AUTH_INT;
-    //session->qop |= GSASL_QOP_AUTH_CONF;
 }
 
 std::string Base64Encode(const std::string & in) {
@@ -154,6 +150,15 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
     std::string retval;
     rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
                     &outputSize);
+    RpcAuth method = RpcAuth(RpcAuth::ParseMethod(theAuth.method()));
+    if (rc == GSASL_GSSAPI_INIT_SEC_CONTEXT_ERROR && method.getMethod() == AuthMethod::KERBEROS) {
+        // Try again using principal instead
+        gsasl_finish(session);
+        initKerberos(theAuth, thePrincipal);
+        gsasl_property_set(session, GSASL_GSSAPI_DISPLAY_NAME, thePrincipal.c_str());
+        rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
+                    &outputSize);
+    }
 
     if (rc == GSASL_NEEDS_MORE || rc == GSASL_OK) {
         retval.resize(outputSize);
