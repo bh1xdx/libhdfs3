@@ -143,6 +143,7 @@ int SaslClient::findPreferred(int possible) {
 }
 
 
+extern void spin(const char*);
 std::string SaslClient::evaluateChallenge(const std::string & challenge) {
     int rc;
     char * output = NULL;
@@ -177,16 +178,20 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
 
     if (rc == GSASL_OK) {
         complete = true;
-        if (challenge.length()) {
+        int preferred = 0;
+        if (method.getMethod() == AuthMethod::TOKEN) {
+            preferred = gsasl_get_qop(session);
+        }
+        else if (challenge.length()) {
             std::string decoded = decode(challenge.c_str(), challenge.length());
             int qop = (int)decoded.c_str()[0];
-            int preferred = findPreferred(qop);
-            if (preferred & GSASL_QOP_AUTH_CONF) {
-                privacy = true;
-                integrity = true;
-            } else if (preferred & GSASL_QOP_AUTH_INT) {
-                integrity = true;
-            }
+            preferred = findPreferred(qop);
+        }
+        if (preferred & GSASL_QOP_AUTH_CONF) {
+            privacy = true;
+            integrity = true;
+        } else if (preferred & GSASL_QOP_AUTH_INT) {
+            integrity = true;
         }
     }
 
@@ -200,6 +205,8 @@ std::string SaslClient::encode(const char *input, size_t input_len) {
         memcpy(&result[0], input, input_len);
         return result;
     }
+    spin("/tmp/brett");
+
     char *output=NULL;
     size_t output_len;
     int rc = gsasl_encode(session, input, input_len, &output, &output_len);
@@ -211,7 +218,7 @@ std::string SaslClient::encode(const char *input, size_t input_len) {
         memcpy(&result[0], output, output_len);
         free(output);
     }
-
+    printf("before %d %d\n", input_len, result.length());
     return result;
 }
 
