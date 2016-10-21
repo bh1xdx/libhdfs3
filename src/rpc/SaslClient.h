@@ -66,6 +66,7 @@ private:
 private:
     Gsasl * ctx;
     Gsasl_session * session;
+    bool changeLength;
     bool complete;
     bool privacy;
     bool integrity;

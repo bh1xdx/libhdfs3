@@ -39,11 +39,11 @@ namespace Internal {
 
 SaslClient::SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
                        const std::string & principal) :
-    complete(false), theAuth(auth), theToken(token), thePrincipal(principal) {
+     complete(false), changeLength(false),
+     privacy(false), integrity(false),
+     theAuth(auth), theToken(token), thePrincipal(principal)  {
     int rc;
     ctx = NULL;
-    privacy = false;
-    integrity = false;
     RpcAuth method = RpcAuth(RpcAuth::ParseMethod(auth.method()));
     rc = gsasl_init(&ctx);
 
@@ -69,10 +69,12 @@ SaslClient::SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
 SaslClient::~SaslClient() {
     if (session != NULL) {
         gsasl_finish(session);
+        session = NULL;
     }
 
     if (ctx != NULL) {
         gsasl_done(ctx);
+        ctx = NULL;
     }
 }
 
@@ -129,6 +131,7 @@ void SaslClient::initDigestMd5(const RpcSaslProto_SaslAuth & auth,
     gsasl_property_set(session, GSASL_AUTHID, identifier.c_str());
     gsasl_property_set(session, GSASL_HOSTNAME, auth.serverid().c_str());
     gsasl_property_set(session, GSASL_SERVICE, auth.protocol().c_str());
+    changeLength = true;
 
 }
 
@@ -143,7 +146,6 @@ int SaslClient::findPreferred(int possible) {
 }
 
 
-extern void spin(const char*);
 std::string SaslClient::evaluateChallenge(const std::string & challenge) {
     int rc;
     char * output = NULL;
@@ -180,7 +182,9 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
         complete = true;
         int preferred = 0;
         if (method.getMethod() == AuthMethod::TOKEN) {
-            preferred = gsasl_get_qop(session);
+            const char *qop = gsasl_property_get (session, GSASL_QOP);
+            if (qop)
+                preferred = qop[0];
         }
         else if (challenge.length()) {
             std::string decoded = decode(challenge.c_str(), challenge.length());
@@ -205,7 +209,6 @@ std::string SaslClient::encode(const char *input, size_t input_len) {
         memcpy(&result[0], input, input_len);
         return result;
     }
-    spin("/tmp/brett");
 
     char *output=NULL;
     size_t output_len;
@@ -214,11 +217,16 @@ std::string SaslClient::encode(const char *input, size_t input_len) {
         THROW(AccessControlException, "Failed to encode wrapped data: %s", gsasl_strerror(rc));
     }
     if (output_len) {
-        result.resize(output_len);
-        memcpy(&result[0], output, output_len);
+
+        if (output_len > 4 && changeLength) {
+            result.resize(output_len-4);
+            memcpy(&result[0], output+4, output_len-4);
+        } else {
+            result.resize(output_len);
+            memcpy(&result[0], output, output_len);
+        }
         free(output);
     }
-    printf("before %d %d\n", input_len, result.length());
     return result;
 }
 
@@ -231,7 +239,20 @@ std::string  SaslClient::decode(const char *input, size_t input_len) {
     }
     char *output=NULL;
     size_t output_len;
-    int rc = gsasl_decode(session, input, input_len, &output, &output_len);
+    std::string actualInput;
+    if (changeLength) {
+        actualInput.resize(input_len+4);
+        actualInput[0] = (input_len>> 24) & 0xFF;
+        actualInput[1] = (input_len >> 16) & 0xFF;
+        actualInput[2] = (input_len >> 8) & 0xFF;
+        actualInput[3] = input_len & 0xFF;
+        memcpy(&actualInput[4], input, input_len);
+
+    } else {
+        actualInput.resize(input_len);
+        memcpy(&actualInput[0], input, input_len);
+    }
+    int rc = gsasl_decode(session, actualInput.c_str(), actualInput.length(), &output, &output_len);
     if (rc != GSASL_OK) {
         THROW(AccessControlException, "Failed to decode wrapped data: %s", gsasl_strerror(rc));
     }
