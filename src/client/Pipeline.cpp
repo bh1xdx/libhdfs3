@@ -97,7 +97,7 @@ void PipelineImpl::transfer(const ExtendedBlock & blk, const DatanodeInfo & src,
     shared_ptr<Socket> so(new TcpSocketImpl);
     shared_ptr<BufferedSocketReader> in(new BufferedSocketReaderImpl(*so));
     so->connect(src.getIpAddr().c_str(), src.getXferPort(), connectTimeout);
-    DataTransferProtocolSender sender(*so, writeTimeout, src.formatAddress());
+    DataTransferProtocolSender sender(*so, writeTimeout, src.formatAddress(), config.getEncryptedDatanode());
     sender.transferBlock(blk, token, clientName.c_str(), targets);
     int size;
     size = in->readVarint32(readTimeout);
@@ -106,7 +106,7 @@ void PipelineImpl::transfer(const ExtendedBlock & blk, const DatanodeInfo & src,
     BlockOpResponseProto resp;
 
     if (!resp.ParseFromArray(&buf[0], size)) {
-        THROW(HdfsIOException, "cannot parse datanode response from %s fro block %s.",
+        THROW(HdfsIOException, "cannot parse datanode response from %s for block %s.",
               src.formatAddress().c_str(), lastBlock->toString().c_str());
     }
 
@@ -586,7 +586,8 @@ void PipelineImpl::createBlockOutputStream(const Token & token, int64_t gs, bool
         }
 
         DataTransferProtocolSender sender(*sock, writeTimeout,
-                                          nodes[0].formatAddress());
+                                          nodes[0].formatAddress(),
+                                          config.getEncryptedDatanode());
         sender.writeBlock(*lastBlock, token, clientName.c_str(), targets,
                           (recovery ? (stage | 0x1) : stage), nodes.size(),
                           lastBlock->getNumBytes(), bytesSent, gs, checksumType, chunkSize);

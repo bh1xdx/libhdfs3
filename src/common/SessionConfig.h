@@ -104,6 +104,10 @@ public:
         return defaultBlockSize;
     }
 
+    bool getEncryptedDatanode() const {
+        return encryptedDatanode;
+    }
+
     /*
      * InputStream configure
      */
@@ -335,6 +339,7 @@ public:
     std::string logSeverity;
     int32_t defaultReplica;
     int64_t defaultBlockSize;
+    bool encryptedDatanode;
 
     /*
      * InputStream configure

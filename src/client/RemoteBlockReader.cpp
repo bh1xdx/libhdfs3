@@ -66,7 +66,7 @@ RemoteBlockReader::RemoteBlockReader(const ExtendedBlock& eb,
     sock = getNextPeer(datanode);
     in = shared_ptr<BufferedSocketReader>(new BufferedSocketReaderImpl(*sock));
     sender = shared_ptr<DataTransferProtocol>(new DataTransferProtocolSender(
-        *sock, writeTimeout, datanode.formatAddress()));
+        *sock, writeTimeout, datanode.formatAddress(), conf.getEncryptedDatanode()));
     sender->readBlock(eb, token, clientName, start, len);
     checkResponse();
 }

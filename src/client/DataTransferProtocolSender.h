@@ -30,6 +30,7 @@
 
 #include "DataTransferProtocol.h"
 #include "network/Socket.h"
+#include "rpc/SaslClient.h"
 
 /**
  * Version 28:
@@ -58,7 +59,8 @@ enum DataTransferOp {
 class DataTransferProtocolSender: public DataTransferProtocol {
 public:
     DataTransferProtocolSender(Socket & sock, int writeTimeout,
-                               const std::string & datanodeAddr);
+                               const std::string & datanodeAddr,
+                               bool secure);
 
     virtual ~DataTransferProtocolSender();
 
@@ -132,9 +134,15 @@ public:
                                         uint32_t maxVersion);
 
 private:
+    void setupSasl(const ExtendedBlock blk, const Token& blockToken);
+
+private:
     Socket & sock;
     int writeTimeout;
     std::string datanode;
+    bool isSecure;
+    bool saslComplete;
+    SaslClient *saslClient;
 };
 
 }
