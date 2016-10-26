@@ -133,6 +133,8 @@ public:
                                         const Token& blockToken,
                                         uint32_t maxVersion);
 
+    virtual bool isWrapped();
+    virtual std::string unwrap(std::string data);
 private:
     void setupSasl(const ExtendedBlock blk, const Token& blockToken);
 

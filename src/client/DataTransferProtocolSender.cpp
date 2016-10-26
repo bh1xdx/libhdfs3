@@ -42,7 +42,7 @@ namespace Hdfs {
 namespace Internal {
 
 static inline void Send(Socket & sock, DataTransferOp op, Message * msg,
-                        int writeTimeout) {
+                        int writeTimeout, SaslClient *saslClient) {
     WriteBuffer buffer;
     buffer.writeBigEndian(static_cast<int16_t>(DATA_TRANSFER_VERSION));
     buffer.write(static_cast<char>(op));
@@ -54,8 +54,24 @@ static inline void Send(Socket & sock, DataTransferOp op, Message * msg,
         THROW(HdfsIOException,
               "DataTransferProtocolSender cannot serialize header to send buffer.");
     }
+    std::string rawdata;
+    if (saslClient) {
 
-    sock.writeFully(buffer.getBuffer(0), buffer.getDataSize(0), writeTimeout);
+        std::string data = saslClient->encode(buffer.getBuffer(0), buffer.getDataSize(0));
+        WriteBuffer buffer2;
+        buffer2.writeBigEndian(static_cast<int32_t>(data.length()));
+        char * b = buffer2.alloc(data.length());
+        memcpy(b, data.c_str(), data.length());
+        int size = buffer2.getDataSize(0);
+        rawdata.resize(size);
+        memcpy(&rawdata[0], buffer2.getBuffer(0), size);
+    }
+    else {
+        int size = buffer.getDataSize(0);
+        rawdata.resize(size);
+        memcpy(&rawdata[0], buffer.getBuffer(0), size);
+    }
+    sock.writeFully(rawdata.c_str(), rawdata.length(), writeTimeout);
 }
 
 static inline void BuildBaseHeader(const ExtendedBlock & block,
@@ -119,7 +135,7 @@ void DataTransferProtocolSender::readBlock(const ExtendedBlock & blk,
         BuildClientHeader(blk, blockToken, clientName, op.mutable_header());
         if (isSecure)
             setupSasl(blk, blockToken);
-        Send(sock, READ_BLOCK, &op, writeTimeout);
+        Send(sock, READ_BLOCK, &op, writeTimeout, saslClient);
     } catch (const HdfsCanceled & e) {
         throw;
     } catch (const HdfsException & e) {
@@ -148,7 +164,7 @@ void DataTransferProtocolSender::writeBlock(const ExtendedBlock & blk,
         BuildNodesInfo(targets, op.mutable_targets());
         if (isSecure)
             setupSasl(blk, blockToken);
-        Send(sock, WRITE_BLOCK, &op, writeTimeout);
+        Send(sock, WRITE_BLOCK, &op, writeTimeout, saslClient);
     } catch (const HdfsCanceled & e) {
         throw;
     } catch (const HdfsException & e) {
@@ -167,7 +183,7 @@ void DataTransferProtocolSender::transferBlock(const ExtendedBlock & blk,
         BuildNodesInfo(targets, op.mutable_targets());
         if (isSecure)
             setupSasl(blk, blockToken);
-        Send(sock, TRANSFER_BLOCK, &op, writeTimeout);
+        Send(sock, TRANSFER_BLOCK, &op, writeTimeout, saslClient);
     } catch (const HdfsCanceled & e) {
         throw;
     } catch (const HdfsException & e) {
@@ -200,7 +216,7 @@ void DataTransferProtocolSender::requestShortCircuitFds(const ExtendedBlock blk,
         if (isSecure)
             setupSasl(blk, blockToken);
 
-        Send(sock, REQUEST_SHORT_CIRCUIT_FDS, &op, writeTimeout);
+        Send(sock, REQUEST_SHORT_CIRCUIT_FDS, &op, writeTimeout, saslClient);
     } catch (const HdfsCanceled& e) {
         throw;
     } catch (const HdfsException& e) {
@@ -259,9 +275,20 @@ void readSaslMessage(Socket & sock, int readTimeout, DataTransferEncryptorMessag
               datanode.c_str(), msg.message().c_str())
     }
 }
-void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token& blockToken) {
-    printf("doing sasl\n");
 
+bool DataTransferProtocolSender::isWrapped() {
+    if (saslClient)
+        return true;
+    return false;
+}
+
+std::string DataTransferProtocolSender::unwrap(std::string data) {
+    std::string rawdata = saslClient->decode(data.c_str(), data.length());
+    return rawdata;
+}
+
+
+void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token& blockToken) {
     WriteBuffer buffer;
     buffer.writeBigEndian((int)0xDEADBEEF);
 
@@ -284,18 +311,13 @@ void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token&
     auth.set_serverid(temp);
     temp = "hdfs";
     auth.set_protocol(temp);
-    printf("here\n");
-    bool stop = true;
-    while (!stop)
-        ::sleep(1);
     saslClient = new SaslClient(auth, blockToken, "");
     std::string token = saslClient->evaluateChallenge(msg.payload());
-    printf("got %s\n", token.c_str());
     sendSaslMessage(sock, DataTransferEncryptorMessageProto_DataTransferEncryptorStatus_SUCCESS,
         token, "", writeTimeout);
     readSaslMessage(sock, writeTimeout*10, msg, datanode);
     token = saslClient->evaluateChallenge(msg.payload());
-    if (token.length != 0) {
+    if (token.length() != 0) {
         THROW(HdfsRpcException,
               "DataNode to \"%s\" got protocol mismatch: got error evaluating challenge.",
               datanode.c_str())

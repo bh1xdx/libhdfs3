@@ -100,9 +100,21 @@ void PipelineImpl::transfer(const ExtendedBlock & blk, const DatanodeInfo & src,
     DataTransferProtocolSender sender(*so, writeTimeout, src.formatAddress(), config.getEncryptedDatanode());
     sender.transferBlock(blk, token, clientName.c_str(), targets);
     int size;
-    size = in->readVarint32(readTimeout);
-    std::vector<char> buf(size);
-    in->readFully(&buf[0], size, readTimeout);
+    std::vector<char> buf(128);
+    if (sender.isWrapped()) {
+        size = in->readBigEndianInt32(readTimeout);
+        buf.resize(size);
+        in->readFully(&buf[0], size, readTimeout);
+        std::string data = sender.unwrap(std::string(buf.begin(), buf.end()));
+        buf.resize(data.length());
+        memcpy(&buf[0], data.c_str(), data.length());
+        size = data.length();
+
+    }
+    else {
+        size = in->readVarint32(readTimeout);
+        reader->readFully(&buf[0], size, readTimeout);
+    }
     BlockOpResponseProto resp;
 
     if (!resp.ParseFromArray(&buf[0], size)) {
@@ -592,9 +604,24 @@ void PipelineImpl::createBlockOutputStream(const Token & token, int64_t gs, bool
                           (recovery ? (stage | 0x1) : stage), nodes.size(),
                           lastBlock->getNumBytes(), bytesSent, gs, checksumType, chunkSize);
         int size;
-        size = reader->readVarint32(readTimeout);
-        std::vector<char> buf(size);
-        reader->readFully(&buf[0], size, readTimeout);
+        std::vector<char> buf(128);
+        if (sender.isWrapped()) {
+            size = reader->readBigEndianInt32(readTimeout);
+            buf.resize(size);
+            reader->readFully(&buf[0], size, readTimeout);
+
+
+            std::string data = sender.unwrap(std::string(buf.begin(), buf.end()));
+            buf.resize(data.length());
+            memcpy(&buf[0], data.c_str(), data.length());
+            size = data.length();
+
+        }
+        else {
+            size = reader->readVarint32(readTimeout);
+            reader->readFully(&buf[0], size, readTimeout);
+        }
+
         BlockOpResponseProto resp;
 
         if (!resp.ParseFromArray(&buf[0], size)) {

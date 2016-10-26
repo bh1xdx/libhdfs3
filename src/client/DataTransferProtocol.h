@@ -115,6 +115,10 @@ public:
     virtual void requestShortCircuitFds(const ExtendedBlock blk,
                                         const Token& blockToken,
                                         uint32_t maxVersion) = 0;
+
+
+    virtual bool isWrapped() = 0;
+    virtual std::string unwrap(std::string data) = 0;
 };
 
 }

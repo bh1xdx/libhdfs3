@@ -101,15 +101,34 @@ shared_ptr<Socket> RemoteBlockReader::getNextPeer(const DatanodeInfo& dn) {
 
 void RemoteBlockReader::checkResponse() {
     std::vector<char> respBuffer;
-    int32_t respSize = in->readVarint32(readTimeout);
+    int32_t respSize = 0;
+    if (sender->isWrapped()) {
+        respSize = in->readBigEndianInt32(readTimeout);
 
-    if (respSize <= 0 || respSize > 10 * 1024 * 1024) {
-        THROW(HdfsIOException, "RemoteBlockReader get a invalid response size: %d, Block: %s, from Datanode: %s",
-              respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+        if (respSize <= 0 || respSize > 10 * 1024 * 1024) {
+            THROW(HdfsIOException, "RemoteBlockReader get a invalid response size: %d, Block: %s, from Datanode: %s",
+                  respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+        }
+
+        respBuffer.resize(respSize);
+        in->readFully(&respBuffer[0], respSize, readTimeout);
+        std::string data = sender->unwrap(std::string(respBuffer.begin(), respBuffer.end()));
+        respBuffer.resize(data.length());
+        memcpy(&respBuffer[0], data.c_str(), data.length());
+        respSize = data.length();
+
+    }
+    else {
+        respSize = in->readVarint32(readTimeout);
+
+        if (respSize <= 0 || respSize > 10 * 1024 * 1024) {
+            THROW(HdfsIOException, "RemoteBlockReader get a invalid response size: %d, Block: %s, from Datanode: %s",
+                  respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+        }
+        respBuffer.resize(respSize);
+        in->readFully(&respBuffer[0], respSize, readTimeout);
     }
 
-    respBuffer.resize(respSize);
-    in->readFully(&respBuffer[0], respSize, readTimeout);
     BlockOpResponseProto resp;
 
     if (!resp.ParseFromArray(&respBuffer[0], respBuffer.size())) {
