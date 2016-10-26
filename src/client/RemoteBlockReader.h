@@ -104,6 +104,7 @@ private:
     shared_ptr<PacketHeader> lastHeader;
     shared_ptr<Socket> sock;
     std::vector<char> buffer;
+    std::vector<char> decryptedbuffer;
 };
 
 }

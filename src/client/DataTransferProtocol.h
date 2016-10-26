@@ -119,6 +119,7 @@ public:
 
     virtual bool isWrapped() = 0;
     virtual std::string unwrap(std::string data) = 0;
+    virtual std::string wrap(std::string data) = 0;
 };
 
 }

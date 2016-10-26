@@ -222,16 +222,48 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
     try {
         shared_ptr<PacketHeader> retval;
         static const int packetHeaderLen = PacketHeader::GetPkgHeaderSize();
-        std::vector<char> buf(packetHeaderLen);
+        std::vector<char> buf2(packetHeaderLen);
 
         if (lastHeader && lastHeader->isLastPacketInBlock()) {
             THROW(HdfsIOException, "RemoteBlockReader: read over block end from Datanode: %s, Block: %s.",
                   datanode.formatAddress().c_str(), binfo.toString().c_str());
         }
+        if (sender->isWrapped()) {
+            std::string data;
+            if (decryptedbuffer.size()) {
+                data = std::string(decryptedbuffer.begin(), decryptedbuffer.end());
 
-        in->readFully(&buf[0], packetHeaderLen, readTimeout);
+            }
+            else {
+                int respSize = in->readBigEndianInt32(readTimeout);
+                std::vector<char> respBuffer;
+                if (respSize <= 0 || respSize > 10 * 1024 * 1024) {
+                    THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
+                          respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+                }
+
+                respBuffer.resize(respSize);
+                in->readFully(&respBuffer[0], respSize, readTimeout);
+                data = sender->unwrap(std::string(respBuffer.begin(), respBuffer.end()));
+                if (packetHeaderLen > data.length()) {
+                    THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
+                          data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
+                }
+            }
+
+            buf2.resize(packetHeaderLen);
+            memcpy(&buf2[0], data.c_str(), packetHeaderLen);
+            if (packetHeaderLen < data.length()) {
+                int remainder = data.length() - packetHeaderLen;
+                decryptedbuffer.resize(remainder);
+                memcpy(&decryptedbuffer[0], data.c_str()+packetHeaderLen, remainder);
+            }
+
+        } else {
+            in->readFully(&buf2[0], packetHeaderLen, readTimeout);
+        }
         retval = shared_ptr<PacketHeader>(new PacketHeader);
-        retval->readFields(&buf[0], packetHeaderLen);
+        retval->readFields(&buf2[0], packetHeaderLen);
         return retval;
     } catch (const HdfsIOException & e) {
         NESTED_THROW(HdfsIOException, "RemoteBlockReader: failed to read block header for Block: %s from Datanode: %s.",
@@ -241,6 +273,7 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
 
 void RemoteBlockReader::readNextPacket() {
     assert(position >= size);
+    decryptedbuffer.clear();
     lastHeader = readPacketHeader();
     int dataSize = lastHeader->getDataLen();
     int64_t pendingAhead = 0;
@@ -258,7 +291,12 @@ void RemoteBlockReader::readNextPacket() {
         size = checksumLen + dataSize;
         assert(size == lastHeader->getPacketLen() - static_cast<int>(sizeof(int32_t)));
         buffer.resize(size);
-        in->readFully(&buffer[0], size, readTimeout);
+        if (!sender->isWrapped()) {
+            in->readFully(&buffer[0], size, readTimeout);
+        } else {
+            memcpy(&buffer[0], &decryptedbuffer[0], size);
+            decryptedbuffer.erase(decryptedbuffer.begin(), decryptedbuffer.begin() + size);
+        }
         lastSeqNo = lastHeader->getSeqno();
 
         if (lastHeader->getPacketLen() != static_cast<int>(sizeof(int32_t)) + dataSize + checksumLen) {
@@ -315,7 +353,21 @@ void RemoteBlockReader::sendStatus() {
     int size = status.ByteSize();
     buffer.writeVarint32(size);
     status.SerializeToArray(buffer.alloc(size), size);
-    sock->writeFully(buffer.getBuffer(0), buffer.getDataSize(0), writeTimeout);
+    if (sender && sender->isWrapped()) {
+        std::string indata;
+        int size = buffer.getDataSize(0);
+        indata.resize(size);
+        memcpy(&indata[0], buffer.getBuffer(0), size);
+        std::string data = sender->wrap(indata);
+        WriteBuffer buffer2;
+        buffer2.writeBigEndian(static_cast<int32_t>(data.length()));
+        char * b = buffer2.alloc(data.length());
+        memcpy(b, data.c_str(), data.length());
+        sock->writeFully(buffer2.getBuffer(0), buffer2.getDataSize(0),
+                     writeTimeout);
+    } else {
+        sock->writeFully(buffer.getBuffer(0), buffer.getDataSize(0), writeTimeout);
+    }
     sentStatus = true;
 }
 

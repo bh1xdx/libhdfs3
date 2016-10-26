@@ -287,6 +287,11 @@ std::string DataTransferProtocolSender::unwrap(std::string data) {
     return rawdata;
 }
 
+std::string DataTransferProtocolSender::wrap(std::string data) {
+    std::string rawdata = saslClient->encode(data.c_str(), data.length());
+    return rawdata;
+}
+
 
 void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token& blockToken) {
     WriteBuffer buffer;

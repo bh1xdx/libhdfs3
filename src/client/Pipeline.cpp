@@ -732,8 +732,23 @@ void PipelineImpl::send(shared_ptr<Packet> packet) {
                 resend();
             } else {
                 assert(sock);
-                sock->writeFully(buffer.getBuffer(), buffer.getSize(),
+                if (sender && sender->isWrapped()) {
+                    std::string indata;
+                    int size = buffer.getSize();
+                    indata.resize(size);
+                    memcpy(&indata[0], buffer.getBuffer(), size);
+                    std::string data = sender->wrap(indata);
+                    WriteBuffer buffer2;
+                    buffer2.writeBigEndian(static_cast<int32_t>(data.length()));
+                    char * b = buffer2.alloc(data.length());
+                    memcpy(b, data.c_str(), data.length());
+                    sock->writeFully(buffer2.getBuffer(0), buffer2.getDataSize(0),
                                  writeTimeout);
+                }
+                else {
+                    sock->writeFully(buffer.getBuffer(), buffer.getSize(),
+                                     writeTimeout);
+                }
                 int64_t tmp = packet->getLastByteOffsetBlock();
                 bytesSent = bytesSent > tmp ? bytesSent : tmp;
             }
