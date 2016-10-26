@@ -34,6 +34,11 @@
 #include "SWCrc32c.h"
 #include "WriteBuffer.h"
 
+#include <google/protobuf/io/coded_stream.h>
+
+using namespace ::google::protobuf;
+using namespace google::protobuf::io;
+
 #include <inttypes.h>
 #include <vector>
 
@@ -113,10 +118,19 @@ void RemoteBlockReader::checkResponse() {
         respBuffer.resize(respSize);
         in->readFully(&respBuffer[0], respSize, readTimeout);
         std::string data = sender->unwrap(std::string(respBuffer.begin(), respBuffer.end()));
-        respBuffer.resize(data.length());
-        memcpy(&respBuffer[0], data.c_str(), data.length());
-        respSize = data.length();
 
+        CodedInputStream stream(reinterpret_cast<const uint8_t *>(data.c_str()), data.length());
+        bool ret = stream.ReadVarint32((uint32*)&respSize);
+        if (!ret) {
+            THROW(HdfsIOException, "RemoteBlockReader get a invalid response size parsing wrapped data length: %d, Block: %s, from Datanode: %s",
+                  respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+        }
+        respBuffer.resize(respSize);
+        ret = stream.ReadRaw(&respBuffer[0], respSize);
+        if (!ret) {
+            THROW(HdfsIOException, "RemoteBlockReader get a invalid response size parsing wrapped data: %d, Block: %s, from Datanode: %s",
+                  respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+        }
     }
     else {
         respSize = in->readVarint32(readTimeout);

@@ -32,9 +32,13 @@
 #include "ExceptionInternal.h"
 #include "OutputStreamInter.h"
 #include "FileSystemInter.h"
-#include "DataTransferProtocolSender.h"
 #include "datatransfer.pb.h"
 #include "server/Datanode.h"
+
+#include <google/protobuf/io/coded_stream.h>
+
+using namespace ::google::protobuf;
+using namespace google::protobuf::io;
 
 #include <inttypes.h>
 
@@ -97,19 +101,28 @@ void PipelineImpl::transfer(const ExtendedBlock & blk, const DatanodeInfo & src,
     shared_ptr<Socket> so(new TcpSocketImpl);
     shared_ptr<BufferedSocketReader> in(new BufferedSocketReaderImpl(*so));
     so->connect(src.getIpAddr().c_str(), src.getXferPort(), connectTimeout);
-    DataTransferProtocolSender sender(*so, writeTimeout, src.formatAddress(), config.getEncryptedDatanode());
-    sender.transferBlock(blk, token, clientName.c_str(), targets);
+    DataTransferProtocolSender sender2(*so, writeTimeout, src.formatAddress(), config.getEncryptedDatanode());
+    sender2.transferBlock(blk, token, clientName.c_str(), targets);
     int size;
     std::vector<char> buf(128);
-    if (sender.isWrapped()) {
+    if (sender2.isWrapped()) {
         size = in->readBigEndianInt32(readTimeout);
         buf.resize(size);
         in->readFully(&buf[0], size, readTimeout);
-        std::string data = sender.unwrap(std::string(buf.begin(), buf.end()));
-        buf.resize(data.length());
-        memcpy(&buf[0], data.c_str(), data.length());
-        size = data.length();
+        std::string data = sender2.unwrap(std::string(buf.begin(), buf.end()));
 
+        CodedInputStream stream(reinterpret_cast<const uint8_t *>(data.c_str()), data.length());
+        bool ret = stream.ReadVarint32((uint32*)&size);
+        if (!ret) {
+            THROW(HdfsIOException, "cannot parse wrapped datanode size response from %s for block %s.",
+              nodes[0].formatAddress().c_str(), lastBlock->toString().c_str());
+        }
+        buf.resize(size);
+        ret = stream.ReadRaw(&buf[0], size);
+        if (!ret) {
+            THROW(HdfsIOException, "cannot parse wrapped datanode data response from %s for block %s.",
+              nodes[0].formatAddress().c_str(), lastBlock->toString().c_str());
+        }
     }
     else {
         size = in->readVarint32(readTimeout);
@@ -596,26 +609,34 @@ void PipelineImpl::createBlockOutputStream(const Token & token, int64_t gs, bool
         for (size_t i = 1; i < nodes.size(); ++i) {
             targets.push_back(nodes[i]);
         }
-
-        DataTransferProtocolSender sender(*sock, writeTimeout,
+        sender = shared_ptr<DataTransferProtocolSender>(new DataTransferProtocolSender(*sock, writeTimeout,
                                           nodes[0].formatAddress(),
-                                          config.getEncryptedDatanode());
-        sender.writeBlock(*lastBlock, token, clientName.c_str(), targets,
+                                          config.getEncryptedDatanode()));
+        sender->writeBlock(*lastBlock, token, clientName.c_str(), targets,
                           (recovery ? (stage | 0x1) : stage), nodes.size(),
                           lastBlock->getNumBytes(), bytesSent, gs, checksumType, chunkSize);
         int size;
         std::vector<char> buf(128);
-        if (sender.isWrapped()) {
+        if (sender->isWrapped()) {
             size = reader->readBigEndianInt32(readTimeout);
             buf.resize(size);
             reader->readFully(&buf[0], size, readTimeout);
 
 
-            std::string data = sender.unwrap(std::string(buf.begin(), buf.end()));
-            buf.resize(data.length());
-            memcpy(&buf[0], data.c_str(), data.length());
-            size = data.length();
+            std::string data = sender->unwrap(std::string(buf.begin(), buf.end()));
 
+            CodedInputStream stream(reinterpret_cast<const uint8_t *>(data.c_str()), data.length());
+            bool ret = stream.ReadVarint32((uint32*)&size);
+            if (!ret) {
+                THROW(HdfsIOException, "cannot parse wrapped datanode size response from %s for block %s.",
+                  nodes[0].formatAddress().c_str(), lastBlock->toString().c_str());
+            }
+            buf.resize(size);
+            ret = stream.ReadRaw(&buf[0], size);
+            if (!ret) {
+                THROW(HdfsIOException, "cannot parse wrapped datanode data response from %s for block %s.",
+                  nodes[0].formatAddress().c_str(), lastBlock->toString().c_str());
+            }
         }
         else {
             size = reader->readVarint32(readTimeout);
@@ -785,10 +806,33 @@ void PipelineImpl::processAck(PipelineAck & ack) {
 void PipelineImpl::processResponse() {
     PipelineAck ack;
     std::vector<char> buf;
-    int size = reader->readVarint32(readTimeout);
+    int size = 0;
+
+    if (sender->isWrapped()) {
+        size = reader->readBigEndianInt32(readTimeout);
+        buf.resize(size);
+        reader->readFully(&buf[0], size, readTimeout);
+
+        std::string data = sender->unwrap(std::string(buf.begin(), buf.end()));
+        CodedInputStream stream(reinterpret_cast<const uint8_t *>(data.c_str()), data.length());
+        bool ret = stream.ReadVarint32((uint32*)&size);
+        if (!ret) {
+            THROW(HdfsIOException, "processAllAcks: cannot parse wrapped datanode size response for block %s.",
+              lastBlock->toString().c_str());
+        }
+        buf.resize(size);
+        ret = stream.ReadRaw(&buf[0], size);
+        if (!ret) {
+            THROW(HdfsIOException, "processAllAcks: cannot parse wrapped datanode data response for block %s.",
+              lastBlock->toString().c_str());
+        }
+    } else {
+        size = reader->readVarint32(readTimeout);
+        buf.resize(size);
+        reader->readFully(&buf[0], size, readTimeout);
+    }
     ack.reset();
-    buf.resize(size);
-    reader->readFully(&buf[0], size, readTimeout);
+
     ack.readFrom(&buf[0], size);
 
     if (ack.isInvalid()) {
