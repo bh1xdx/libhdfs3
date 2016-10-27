@@ -324,10 +324,6 @@ void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token&
     payload.resize(1);
     payload[0] = 0;
 
-    bool stop = true;
-    while (!stop) {
-        ::sleep(1);
-    }
     sendSaslMessage(sock, DataTransferEncryptorMessageProto_DataTransferEncryptorStatus_SUCCESS,
         payload, "", writeTimeout, false);
     DataTransferEncryptorMessageProto msg;
