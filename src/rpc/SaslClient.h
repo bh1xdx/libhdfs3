@@ -43,7 +43,7 @@ namespace Internal {
 class SaslClient {
 public:
     SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
-               const std::string & principal);
+               const std::string & principal, bool encryptedData=false);
 
     ~SaslClient();
 
@@ -73,6 +73,7 @@ private:
     const RpcSaslProto_SaslAuth theAuth;
     const Token theToken;
     const std::string thePrincipal;
+    bool encryptedData;
 };
 
 }

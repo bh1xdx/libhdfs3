@@ -38,10 +38,10 @@ namespace Hdfs {
 namespace Internal {
 
 SaslClient::SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
-                       const std::string & principal) :
+                       const std::string & principal, bool encryptedData) :
      complete(false), changeLength(false),
      privacy(false), integrity(false),
-     theAuth(auth), theToken(token), thePrincipal(principal)  {
+     theAuth(auth), theToken(token), thePrincipal(principal), encryptedData(encryptedData)  {
     int rc;
     ctx = NULL;
     RpcAuth method = RpcAuth(RpcAuth::ParseMethod(auth.method()));
@@ -126,9 +126,14 @@ void SaslClient::initDigestMd5(const RpcSaslProto_SaslAuth & auth,
     }
 
     std::string password = Base64Encode(token.getPassword());
-    std::string identifier = Base64Encode(token.getIdentifier());
+    std::string identifier;
+
+    if (!encryptedData)
+        identifier = Base64Encode(token.getIdentifier());
+    else
+        identifier = token.getIdentifier();
     gsasl_property_set(session, GSASL_PASSWORD, password.c_str());
-    gsasl_property_set(session, GSASL_AUTHID, identifier.c_str());
+    gsasl_property_set_raw(session, GSASL_AUTHID, identifier.c_str(), identifier.length());
     gsasl_property_set(session, GSASL_HOSTNAME, auth.serverid().c_str());
     gsasl_property_set(session, GSASL_SERVICE, auth.protocol().c_str());
     changeLength = true;

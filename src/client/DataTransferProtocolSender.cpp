@@ -356,13 +356,14 @@ void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token&
         user += " ";
         user += Base64Encode(nonce);
         ourToken.setIdentifier(user);
+        ourToken.setPassword(theKey.getEncryptionKey());
     }
 
     temp = "0";
     auth.set_serverid(temp);
     temp = "hdfs";
     auth.set_protocol(temp);
-    saslClient = new SaslClient(auth, ourToken, "");
+    saslClient = new SaslClient(auth, ourToken, "", isSecure);
     std::string token = saslClient->evaluateChallenge(msg.payload());
     sendSaslMessage(sock, DataTransferEncryptorMessageProto_DataTransferEncryptorStatus_SUCCESS,
         token, "", writeTimeout, isSecure);
