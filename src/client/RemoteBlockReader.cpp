@@ -45,7 +45,8 @@ using namespace google::protobuf::io;
 namespace Hdfs {
 namespace Internal {
 
-RemoteBlockReader::RemoteBlockReader(const ExtendedBlock& eb,
+RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
+                                     const ExtendedBlock& eb,
                                      DatanodeInfo& datanode,
                                      PeerCache& peerCache, int64_t start,
                                      int64_t len, const Token& token,
@@ -62,16 +63,19 @@ RemoteBlockReader::RemoteBlockReader(const ExtendedBlock& eb,
       cursor(start),
       endOffset(len + start),
       lastSeqNo(-1),
-      peerCache(peerCache) {
+      peerCache(peerCache),
+      filesystem(filesystem) {
 
     assert(start >= 0);
     readTimeout = conf.getInputReadTimeout();
     writeTimeout = conf.getInputWriteTimeout();
     connTimeout = conf.getInputConnTimeout();
     sock = getNextPeer(datanode);
+    EncryptionKey key = filesystem->getEncryptionKeys();
     in = shared_ptr<BufferedSocketReader>(new BufferedSocketReaderImpl(*sock));
     sender = shared_ptr<DataTransferProtocol>(new DataTransferProtocolSender(
-        *sock, writeTimeout, datanode.formatAddress(), conf.getEncryptedDatanode()));
+        *sock, writeTimeout, datanode.formatAddress(), conf.getEncryptedDatanode(),
+        conf.getSecureDatanode(), key));
     sender->readBlock(eb, token, clientName, start, len);
     checkResponse();
 }

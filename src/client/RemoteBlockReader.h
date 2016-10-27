@@ -38,6 +38,7 @@
 #include "PeerCache.h"
 #include "server/DatanodeInfo.h"
 #include "server/LocatedBlocks.h"
+#include "FileSystemInter.h"
 #include "SessionConfig.h"
 
 namespace Hdfs {
@@ -45,7 +46,8 @@ namespace Internal {
 
 class RemoteBlockReader: public BlockReader {
 public:
-    RemoteBlockReader(const ExtendedBlock& eb, DatanodeInfo& datanode,
+    RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
+                      const ExtendedBlock& eb, DatanodeInfo& datanode,
                       PeerCache& peerCache, int64_t start, int64_t len,
                       const Token& token, const char* clientName, bool verify,
                       SessionConfig& conf);
@@ -105,6 +107,7 @@ private:
     shared_ptr<Socket> sock;
     std::vector<char> buffer;
     std::vector<char> decryptedbuffer;
+    shared_ptr<FileSystemInter> filesystem;
 };
 
 }

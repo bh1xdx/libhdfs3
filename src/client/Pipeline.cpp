@@ -101,7 +101,9 @@ void PipelineImpl::transfer(const ExtendedBlock & blk, const DatanodeInfo & src,
     shared_ptr<Socket> so(new TcpSocketImpl);
     shared_ptr<BufferedSocketReader> in(new BufferedSocketReaderImpl(*so));
     so->connect(src.getIpAddr().c_str(), src.getXferPort(), connectTimeout);
-    DataTransferProtocolSender sender2(*so, writeTimeout, src.formatAddress(), config.getEncryptedDatanode());
+    EncryptionKey key = filesystem->getEncryptionKeys();
+    DataTransferProtocolSender sender2(*so, writeTimeout, src.formatAddress(), config.getEncryptedDatanode(),
+        config.getSecureDatanode(), key);
     sender2.transferBlock(blk, token, clientName.c_str(), targets);
     int size;
     std::vector<char> buf(128);
@@ -609,9 +611,12 @@ void PipelineImpl::createBlockOutputStream(const Token & token, int64_t gs, bool
         for (size_t i = 1; i < nodes.size(); ++i) {
             targets.push_back(nodes[i]);
         }
+        EncryptionKey key = filesystem->getEncryptionKeys();
         sender = shared_ptr<DataTransferProtocolSender>(new DataTransferProtocolSender(*sock, writeTimeout,
                                           nodes[0].formatAddress(),
-                                          config.getEncryptedDatanode()));
+                                          config.getEncryptedDatanode(),
+                                          config.getSecureDatanode(),
+                                          key));
         sender->writeBlock(*lastBlock, token, clientName.c_str(), targets,
                           (recovery ? (stage | 0x1) : stage), nodes.size(),
                           lastBlock->getNumBytes(), bytesSent, gs, checksumType, chunkSize);

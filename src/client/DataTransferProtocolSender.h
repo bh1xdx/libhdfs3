@@ -31,6 +31,7 @@
 #include "DataTransferProtocol.h"
 #include "network/Socket.h"
 #include "rpc/SaslClient.h"
+#include "server/EncryptionKey.h"
 
 /**
  * Version 28:
@@ -60,7 +61,7 @@ class DataTransferProtocolSender: public DataTransferProtocol {
 public:
     DataTransferProtocolSender(Socket & sock, int writeTimeout,
                                const std::string & datanodeAddr,
-                               bool secure);
+                               bool secure, bool token, EncryptionKey& key);
 
     virtual ~DataTransferProtocolSender();
 
@@ -144,8 +145,10 @@ private:
     int writeTimeout;
     std::string datanode;
     bool isSecure;
+    bool isToken;
     bool saslComplete;
     SaslClient *saslClient;
+    EncryptionKey theKey;
 };
 
 }

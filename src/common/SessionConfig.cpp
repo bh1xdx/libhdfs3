@@ -73,6 +73,8 @@ SessionConfig::SessionConfig(const Config & conf) {
             &legacyLocalBlockReader, "dfs.client.use.legacy.blockreader.local", false
         }, {
             &encryptedDatanode, "dfs.encrypt.data.transfer", false
+        },{
+            &secureDatanode, "dfs.block.access.token.enable", false
         }
     };
     ConfigDefault<int32_t> i32Values[] = {

@@ -355,9 +355,10 @@ void InputStreamImpl::setupBlockReader(bool temporaryDisableLocalRead) {
 
                 shared_ptr<ReadShortCircuitInfo> info;
                 ReadShortCircuitInfoBuilder builder(curNode, auth, *conf);
+                EncryptionKey ekey = filesystem->getEncryptionKeys();
 
                 try {
-                    info = builder.fetchOrCreate(*curBlock, curBlock->getToken());
+                    info = builder.fetchOrCreate(*curBlock, curBlock->getToken(), ekey);
 
                     if (!info) {
                         continue;
@@ -378,6 +379,7 @@ void InputStreamImpl::setupBlockReader(bool temporaryDisableLocalRead) {
                 const char * clientName = filesystem->getClientName();
                 lastReadFromLocal = false;
                 blockReader = shared_ptr<BlockReader>(new RemoteBlockReader(
+                    filesystem,
                     *curBlock, curNode, *peerCache, offset, len,
                     curBlock->getToken(), clientName, verify, *conf));
             }

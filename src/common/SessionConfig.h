@@ -108,6 +108,10 @@ public:
         return encryptedDatanode;
     }
 
+    bool getSecureDatanode() const {
+        return secureDatanode;
+    }
+
     /*
      * InputStream configure
      */
@@ -340,6 +344,7 @@ public:
     int32_t defaultReplica;
     int64_t defaultBlockSize;
     bool encryptedDatanode;
+    bool secureDatanode;
 
     /*
      * InputStream configure
