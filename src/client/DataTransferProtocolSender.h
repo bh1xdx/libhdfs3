@@ -134,6 +134,7 @@ public:
                                         const Token& blockToken,
                                         uint32_t maxVersion);
 
+    virtual bool needsLength();
     virtual bool isWrapped();
     virtual std::string unwrap(std::string data);
     virtual std::string wrap(std::string data);

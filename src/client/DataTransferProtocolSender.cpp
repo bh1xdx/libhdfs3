@@ -56,10 +56,10 @@ static inline void Send(Socket & sock, DataTransferOp op, Message * msg,
     }
     std::string rawdata;
     if (saslClient) {
-
         std::string data = saslClient->encode(buffer.getBuffer(0), buffer.getDataSize(0));
         WriteBuffer buffer2;
-        buffer2.writeBigEndian(static_cast<int32_t>(data.length()));
+        if (saslClient->needsLength())
+            buffer2.writeBigEndian(static_cast<int32_t>(data.length()));
         char * b = buffer2.alloc(data.length());
         memcpy(b, data.c_str(), data.length());
         int size = buffer2.getDataSize(0);
@@ -288,6 +288,12 @@ bool DataTransferProtocolSender::isWrapped() {
     return false;
 }
 
+bool DataTransferProtocolSender::needsLength() {
+    if (saslClient)
+        return saslClient->needsLength();
+    return true;
+}
+
 std::string DataTransferProtocolSender::unwrap(std::string data) {
     std::string rawdata = saslClient->decode(data.c_str(), data.length());
     return rawdata;
@@ -300,20 +306,6 @@ std::string DataTransferProtocolSender::wrap(std::string data) {
 
 extern std::string Base64Encode(const std::string & in);
 
-std::string getNonce(std::string challenge)
-{
-    const char nonce[] = "nonce=\"";
-    size_t start = challenge.find(nonce);
-    if (start == challenge.npos)
-        return "";
-    start += strlen(nonce);
-    size_t end = challenge.find('"', start);
-    if (end == challenge.npos)
-        return "";
-    return challenge.substr(start, end-start);
-
-
-}
 void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token& blockToken) {
     WriteBuffer buffer;
     buffer.writeBigEndian((int)0xDEADBEEF);
@@ -365,11 +357,27 @@ void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token&
         token, "", writeTimeout, isSecure);
     readSaslMessage(sock, writeTimeout*10, msg, datanode);
 
+
+
     token = saslClient->evaluateChallenge(msg.payload());
     if (token.length() != 0) {
         THROW(HdfsRpcException,
               "DataNode to \"%s\" got protocol mismatch: got error evaluating challenge.",
               datanode.c_str())
+    }
+
+    if (msg.cipheroption().size()) {
+        CipherOptionProto cipher = msg.cipheroption().Get(0);
+        std::string inKey = cipher.inkey();
+        std::string inIv = cipher.iniv();
+        std::string outKey = cipher.outkey();
+        std::string outIv = cipher.outiv();
+
+        inKey = saslClient->decode(inKey.c_str(), inKey.length());
+        outKey = saslClient->decode(outKey.c_str(), outKey.length());
+
+        AESClient *aes = new AESClient(inKey, inIv, outKey, outIv);
+        saslClient->setAes(aes);
     }
     saslComplete = true;
 

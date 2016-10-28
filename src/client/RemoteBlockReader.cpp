@@ -124,10 +124,15 @@ void RemoteBlockReader::checkResponse() {
         std::string data = sender->unwrap(std::string(respBuffer.begin(), respBuffer.end()));
 
         CodedInputStream stream(reinterpret_cast<const uint8_t *>(data.c_str()), data.length());
-        bool ret = stream.ReadVarint32((uint32*)&respSize);
-        if (!ret) {
-            THROW(HdfsIOException, "RemoteBlockReader get a invalid response size parsing wrapped data length: %d, Block: %s, from Datanode: %s",
-                  respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+        bool ret;
+        if (sender->needsLength()) {
+            ret = stream.ReadVarint32((uint32*)&respSize);
+            if (!ret) {
+                THROW(HdfsIOException, "RemoteBlockReader get a invalid response size parsing wrapped data length: %d, Block: %s, from Datanode: %s",
+                      respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+            }
+        } else {
+            respSize = data.length();
         }
         respBuffer.resize(respSize);
         ret = stream.ReadRaw(&respBuffer[0], respSize);
@@ -364,7 +369,9 @@ void RemoteBlockReader::sendStatus() {
         memcpy(&indata[0], buffer.getBuffer(0), size);
         std::string data = sender->wrap(indata);
         WriteBuffer buffer2;
-        buffer2.writeBigEndian(static_cast<int32_t>(data.length()));
+        if (sender->needsLength()) {
+            buffer2.writeBigEndian(static_cast<int32_t>(data.length()));
+        }
         char * b = buffer2.alloc(data.length());
         memcpy(b, data.c_str(), data.length());
         sock->writeFully(buffer2.getBuffer(0), buffer2.getDataSize(0),

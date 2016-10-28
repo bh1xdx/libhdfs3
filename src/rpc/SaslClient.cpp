@@ -37,11 +37,137 @@
 namespace Hdfs {
 namespace Internal {
 
+std::string calculateIV(std::string initIV, long counter) {
+    std::string IV;
+    IV.resize(initIV.length());
+    int i = initIV.length();
+    int j = 0;
+    int sum = 0;
+    unsigned c;
+    while (i-- > 0) {
+      // (sum >>> Byte.SIZE) is the carry for addition
+      sum = (((unsigned char)initIV.c_str()[i]) & 0xff) + ((unsigned int)sum >> 1);
+      if (j++ < 8) { // Big-endian, and long is 8 bytes length
+        sum += (unsigned char) counter & 0xff;
+        c = (unsigned long) counter;
+        c >>= (unsigned)8;
+        counter = c;
+      }
+      IV[i] = (unsigned char) sum;
+    }
+    return IV;
+}
+
+void printArray(std::string str, const char* text) {
+    int i=0;
+    printf("length %d: %s\n", str.length(), text);
+    for (i=0; i < str.length(); i++) {
+        printf("%02d ", (int)str[i]);
+    }
+    printf("\n");
+
+}
+bool AESClient::initialized = false;
+
+AESClient::AESClient(std::string enckey, std::string enciv,
+              std::string deckey, std::string deciv) : enckey(enckey),
+                enciv(enciv), deckey(deckey), deciv(deciv)
+{
+    if (!initialized) {
+      ERR_load_crypto_strings();
+      OpenSSL_add_all_algorithms();
+      OPENSSL_config(NULL);
+      initialized = true;
+    }
+    printArray(enckey, "enc key");
+    printArray(enciv, "enc iv");
+    printArray(deckey, "dec key");
+    printArray(deciv, "dec iv");
+    encrypt = NULL;
+    decrypt = NULL;
+    encrypt = EVP_CIPHER_CTX_new();
+    if (!encrypt) {
+        std::string err = ERR_lib_error_string(ERR_get_error());
+        THROW(HdfsIOException, "Cannot initialize aes encrypt context %s",
+              err.c_str());
+    }
+    decrypt = EVP_CIPHER_CTX_new();
+    if (!decrypt) {
+        std::string err = ERR_lib_error_string(ERR_get_error());
+        THROW(HdfsIOException, "Cannot initialize aes decrypt context %s",
+              err.c_str());
+    }
+    std::string iv = enciv; //calculateIV(enciv.c_str(), 0);
+    if (!EVP_CipherInit_ex(encrypt, EVP_aes_128_ctr(), NULL,
+        (const unsigned char*)enckey.c_str(), (const unsigned char*)iv.c_str(), 1)) {
+        std::string err = ERR_lib_error_string(ERR_get_error());
+        THROW(HdfsIOException, "Cannot initialize aes encrypt cipher %s",
+              err.c_str());
+    }
+    iv = deciv; //calculateIV(deciv.c_str(), 0);
+    if (!EVP_CipherInit_ex(decrypt, EVP_aes_128_ctr(), NULL, (const unsigned char*)deckey.c_str(),
+        (const unsigned char*)iv.c_str(), 0)) {
+        std::string err = ERR_lib_error_string(ERR_get_error());
+        THROW(HdfsIOException, "Cannot initialize aes decrypt cipher %s",
+              err.c_str());
+    }
+    EVP_CIPHER_CTX_set_padding(encrypt, 0);
+    EVP_CIPHER_CTX_set_padding(decrypt, 0);
+    encoffset = 0;
+    decoffset = 0;
+
+}
+
+AESClient::~AESClient() {
+    if (encrypt)
+        EVP_CIPHER_CTX_free(encrypt);
+    if (decrypt)
+        EVP_CIPHER_CTX_free(decrypt);
+}
+
+std::string AESClient::encode(const char *input, size_t input_len) {
+    int len;
+    std::string result;
+    result.resize(input_len);
+
+    std::string inp;
+    inp.resize(input_len);
+    memcpy(&inp[0], input, input_len);
+    printArray(inp, "original before encrypt");
+    if (!EVP_CipherUpdate (encrypt, (unsigned char*)&result[0], &len, (const unsigned char*)input, input_len)) {
+        std::string err = ERR_lib_error_string(ERR_get_error());
+        THROW(HdfsIOException, "Cannot encrypt AES data %s",
+              err.c_str());
+    }
+    printArray(result, "after encrypt");
+    return result;
+}
+
+std::string AESClient::decode(const char *input, size_t input_len) {
+    int len;
+    std::string result;
+    result.resize(input_len);
+    std::string inp;
+    inp.resize(input_len);
+    memcpy(&inp[0], input, input_len);
+    printArray(inp, "original before decrypt");
+    if (!EVP_CipherUpdate (decrypt, (unsigned char*)&result[0], &len, (const unsigned char*)input, input_len)) {
+        std::string err = ERR_lib_error_string(ERR_get_error());
+        THROW(HdfsIOException, "Cannot decrypt AES data %s",
+              err.c_str());
+    }
+    printArray(result, "after decrypt");
+    return result;
+}
+
+
+
+
 SaslClient::SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
                        const std::string & principal, bool encryptedData) :
      complete(false), changeLength(false),
      privacy(false), integrity(false),
-     theAuth(auth), theToken(token), thePrincipal(principal), encryptedData(encryptedData)  {
+     theAuth(auth), theToken(token), thePrincipal(principal), encryptedData(encryptedData), aes(NULL)  {
     int rc;
     ctx = NULL;
     RpcAuth method = RpcAuth(RpcAuth::ParseMethod(auth.method()));
@@ -67,6 +193,9 @@ SaslClient::SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
 }
 
 SaslClient::~SaslClient() {
+    if (aes)
+        delete aes;
+
     if (session != NULL) {
         gsasl_finish(session);
         session = NULL;
@@ -78,6 +207,13 @@ SaslClient::~SaslClient() {
     }
 }
 
+bool SaslClient::needsLength() {
+    return aes == NULL;
+}
+
+void SaslClient::setAes(AESClient *client) {
+    aes = client;
+}
 
 void SaslClient::initKerberos(const RpcSaslProto_SaslAuth & auth,
                               const std::string & principal) {
@@ -214,6 +350,8 @@ std::string SaslClient::encode(const char *input, size_t input_len) {
         memcpy(&result[0], input, input_len);
         return result;
     }
+    if (aes)
+        return aes->encode(input, input_len);
 
     char *output=NULL;
     size_t output_len;
@@ -242,6 +380,9 @@ std::string  SaslClient::decode(const char *input, size_t input_len) {
         memcpy(&result[0], input, input_len);
         return result;
     }
+    if (aes)
+        return aes->decode(input, input_len);
+
     char *output=NULL;
     size_t output_len;
     std::string actualInput;
