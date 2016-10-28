@@ -299,6 +299,15 @@ std::string DataTransferProtocolSender::unwrap(std::string data) {
     return rawdata;
 }
 
+std::string DataTransferProtocolSender::statelessunwrap(std::string data) {
+    std::string rawdata = saslClient->statelessdecode(data.c_str(), data.length());
+    return rawdata;
+}
+
+void DataTransferProtocolSender::advanceWrapPosition(std::string data) {
+    saslClient->advanceWrapPosition(data.c_str(), data.length());
+}
+
 std::string DataTransferProtocolSender::wrap(std::string data) {
     std::string rawdata = saslClient->encode(data.c_str(), data.length());
     return rawdata;
@@ -376,7 +385,7 @@ void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token&
         inKey = saslClient->decode(inKey.c_str(), inKey.length());
         outKey = saslClient->decode(outKey.c_str(), outKey.length());
 
-        AESClient *aes = new AESClient(inKey, inIv, outKey, outIv);
+        AESClient *aes = new AESClient(inKey, inIv, outKey, outIv, 8192);
         saslClient->setAes(aes);
     }
     saslComplete = true;

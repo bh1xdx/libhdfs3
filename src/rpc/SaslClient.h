@@ -43,33 +43,31 @@ namespace Internal {
 
 #define SWITCH_TO_SIMPLE_AUTH -88
 
-#define BUF_SIZE 8192
 
 class AESClient {
 public:
     AESClient(std::string enckey, std::string enciv,
-              std::string deckey, std::string deciv);
+              std::string deckey, std::string deciv, int bufsize);
     ~AESClient();
 
     std::string encode(const char *input, size_t input_len);
     std::string decode(const char *input, size_t input_len);
-
-    void flushEncode();
+    std::string statelessdecode(const char *input, size_t input_len);
+    void advanceWrapPosition(const char *input, size_t input_len);
 
 private:
     EVP_CIPHER_CTX *encrypt;
     EVP_CIPHER_CTX *decrypt;
 
-    const char *encbuf[BUF_SIZE];
-    const char *decbuf[BUF_SIZE];
-
-    int encoffset;
-    int decoffset;
+    int packetsSent;
+    long decoffset;
+    int bufsize;
 
     std::string enckey;
     std::string enciv;
     std::string deckey;
     std::string deciv;
+    std::string initdeciv;
     static bool initialized;
 };
 
@@ -92,6 +90,8 @@ public:
 
     std::string encode(const char *input, size_t input_len);
     std::string decode(const char *input, size_t input_len);
+    std::string statelessdecode(const char *input, size_t input_len);
+    void advanceWrapPosition(const char *input, size_t input_len);
 
 private:
     int findPreferred(int possible);

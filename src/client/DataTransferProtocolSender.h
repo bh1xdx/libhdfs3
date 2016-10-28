@@ -136,6 +136,9 @@ public:
 
     virtual bool needsLength();
     virtual bool isWrapped();
+    virtual std::string statelessunwrap(std::string data);
+    virtual void advanceWrapPosition(std::string data);
+
     virtual std::string unwrap(std::string data);
     virtual std::string wrap(std::string data);
 private:
