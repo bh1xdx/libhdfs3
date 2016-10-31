@@ -244,7 +244,7 @@ ReadShortCircuitInfoBuilder::createReadShortCircuitInfo(
   DomainSocketImpl sock;
   sock.connect(addr.c_str(), 0, conf.getInputConnTimeout());
   DataTransferProtocolSender sender(sock, conf.getInputWriteTimeout(), addr, conf.getEncryptedDatanode(),
-    conf.getSecureDatanode(), ekey);
+    conf.getSecureDatanode(), ekey, conf.getCryptoBufferSize());
   sender.requestShortCircuitFds(block, token, MaxReadShortCircuitVersion);
   shared_ptr<ReadShortCircuitFDHolder> fds =
       receiveReadShortCircuitFDs(sock, block);

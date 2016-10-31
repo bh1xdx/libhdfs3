@@ -112,6 +112,10 @@ public:
         return secureDatanode;
     }
 
+    int32_t getCryptoBufferSize() const {
+        return cryptoBufferSize;
+    }
+
     /*
      * InputStream configure
      */
@@ -345,6 +349,7 @@ public:
     int64_t defaultBlockSize;
     bool encryptedDatanode;
     bool secureDatanode;
+    int32_t cryptoBufferSize;
 
     /*
      * InputStream configure

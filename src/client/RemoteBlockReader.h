@@ -40,6 +40,8 @@
 #include "server/LocatedBlocks.h"
 #include "FileSystemInter.h"
 #include "SessionConfig.h"
+#include "DataReader.h"
+
 
 namespace Hdfs {
 namespace Internal {
@@ -103,10 +105,10 @@ private:
     shared_ptr<BufferedSocketReader> in;
     shared_ptr<Checksum> checksum;
     shared_ptr<DataTransferProtocol> sender;
+    shared_ptr<DataReader> reader;
     shared_ptr<PacketHeader> lastHeader;
     shared_ptr<Socket> sock;
     std::vector<char> buffer;
-    std::vector<char> decryptedbuffer;
     shared_ptr<FileSystemInter> filesystem;
 };
 

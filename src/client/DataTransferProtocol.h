@@ -119,9 +119,7 @@ public:
     virtual bool needsLength() = 0;
     virtual bool isWrapped() = 0;
     virtual std::string unwrap(std::string data) = 0;
-    virtual std::string statelessunwrap(std::string data) = 0;
     virtual std::string wrap(std::string data) = 0;
-    virtual void advanceWrapPosition(std::string data) = 0;
 };
 
 }

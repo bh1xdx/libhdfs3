@@ -106,8 +106,9 @@ void PipelineImpl::transfer(const ExtendedBlock & blk, const DatanodeInfo & src,
     so->connect(src.getIpAddr().c_str(), src.getXferPort(), connectTimeout);
     EncryptionKey key = filesystem->getEncryptionKeys();
 
+
     DataTransferProtocolSender sender2(*so, writeTimeout, src.formatAddress(), config.getEncryptedDatanode(),
-        config.getSecureDatanode(), key);
+        config.getSecureDatanode(), key, config.getCryptoBufferSize());
     sender2.transferBlock(blk, token, clientName.c_str(), targets);
     char error_text[2048];
     sprintf(error_text, "from %s for block %s.", nodes[0].formatAddress().c_str(), lastBlock->toString().c_str());
@@ -602,7 +603,7 @@ void PipelineImpl::createBlockOutputStream(const Token & token, int64_t gs, bool
                                           nodes[0].formatAddress(),
                                           config.getEncryptedDatanode(),
                                           config.getSecureDatanode(),
-                                          key));
+                                          key, config.getCryptoBufferSize()));
         sender->writeBlock(*lastBlock, token, clientName.c_str(), targets,
                           (recovery ? (stage | 0x1) : stage), nodes.size(),
                           lastBlock->getNumBytes(), bytesSent, gs, checksumType, chunkSize);
@@ -684,7 +685,6 @@ void PipelineImpl::resend() {
                 buffer2.writeBigEndian(static_cast<int32_t>(data.length()));
             char * b = buffer2.alloc(data.length());
             memcpy(b, data.c_str(), data.length());
-            printf("doing write of size %d\n", data.length());
             sock->writeFully(buffer2.getBuffer(0), buffer2.getDataSize(0),
                          writeTimeout);
         }
@@ -730,7 +730,6 @@ void PipelineImpl::send(shared_ptr<Packet> packet) {
                         buffer2.writeBigEndian(static_cast<int32_t>(data.length()));
                     char * b = buffer2.alloc(data.length());
                     memcpy(b, data.c_str(), data.length());
-                    printf("doing write of size %d\n", data.length());
                     sock->writeFully(buffer2.getBuffer(0), buffer2.getDataSize(0),
                                  writeTimeout);
                 }
@@ -814,19 +813,22 @@ void PipelineImpl::processResponse() {
     char error_text[2048];
     sprintf(error_text, "for block %s.", lastBlock->toString().c_str());
     DataReader datareader(sender.get(), reader, readTimeout);
-    std::vector<char> &buf = datareader.readResponse(error_text, size);
 
-    ack.reset();
+    do {
+        std::vector<char> &buf = datareader.readResponse(error_text, size);
 
-    ack.readFrom(&buf[0], size);
+        ack.reset();
 
-    if (ack.isInvalid()) {
-        THROW(HdfsIOException,
-              "processAllAcks: get an invalid DataStreamer packet ack for block %s",
-              lastBlock->toString().c_str());
-    }
+        ack.readFrom(&buf[0], size);
 
-    processAck(ack);
+        if (ack.isInvalid()) {
+            THROW(HdfsIOException,
+                  "processAllAcks: get an invalid DataStreamer packet ack for block %s",
+                  lastBlock->toString().c_str());
+        }
+
+        processAck(ack);
+    } while (datareader.getRest().size() > 0);
 }
 
 void PipelineImpl::checkResponse(bool wait) {

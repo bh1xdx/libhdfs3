@@ -52,8 +52,6 @@ public:
 
     std::string encode(const char *input, size_t input_len);
     std::string decode(const char *input, size_t input_len);
-    std::string statelessdecode(const char *input, size_t input_len);
-    void advanceWrapPosition(const char *input, size_t input_len);
 
 private:
     EVP_CIPHER_CTX *encrypt;
@@ -90,8 +88,6 @@ public:
 
     std::string encode(const char *input, size_t input_len);
     std::string decode(const char *input, size_t input_len);
-    std::string statelessdecode(const char *input, size_t input_len);
-    void advanceWrapPosition(const char *input, size_t input_len);
 
 private:
     int findPreferred(int possible);

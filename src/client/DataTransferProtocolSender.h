@@ -61,7 +61,8 @@ class DataTransferProtocolSender: public DataTransferProtocol {
 public:
     DataTransferProtocolSender(Socket & sock, int writeTimeout,
                                const std::string & datanodeAddr,
-                               bool secure, bool token, EncryptionKey& key);
+                               bool secure, bool token, EncryptionKey& key,
+                               int32_t cryptoBufferSize);
 
     virtual ~DataTransferProtocolSender();
 
@@ -136,8 +137,6 @@ public:
 
     virtual bool needsLength();
     virtual bool isWrapped();
-    virtual std::string statelessunwrap(std::string data);
-    virtual void advanceWrapPosition(std::string data);
 
     virtual std::string unwrap(std::string data);
     virtual std::string wrap(std::string data);
@@ -153,6 +152,7 @@ private:
     bool saslComplete;
     SaslClient *saslClient;
     EncryptionKey theKey;
+    int32_t cryptoBufferSize;
 };
 
 }

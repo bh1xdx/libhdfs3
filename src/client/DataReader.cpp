@@ -44,99 +44,108 @@ using namespace google::protobuf::io;
 namespace Hdfs {
 namespace Internal {
 
-class EncryptedInputStream : public CopyingInputStream {
-public:
-    EncryptedInputStream(DataTransferProtocol* sender,
-            shared_ptr<BufferedSocketReader> reader, int readTimeout): sender(sender), reader(reader),
-            readTimeout(readTimeout), readOffset(0) {
 
-    }
-    int Read(void * buffer, int size) {
-        while (raw.length() == 0 || size > raw.length()) {
-            int offset = raw.length();
-            raw.resize(8192 + offset);
-            if (reader->poll(readTimeout)) {
-                int nread = reader->read(&raw[offset], 8192);
-                if (nread <= 0)
-                    THROW(HdfsIOException, "Couldn't fill buffer")
-                raw.resize(nread+offset);
+int fillData(BufferedSocketReader *reader, std::string &raw) {
+    int offset=0;
+    int numRetries=0;
+    raw.resize(65535);
+    while (numRetries < 5) {
+        if (reader->poll(100)) {
+            int nread = 0;
+
+            try {
+                nread = reader->read(&raw[offset], 65535-offset);
             }
+            catch (HdfsEndOfStream ex) {
+                if (offset == 0)
+                    raise;
+                break;
+            }
+            if (nread) {
+                offset += nread;
+                numRetries = 0;
+            } else {
+                numRetries += 1;
+            }
+        } else {
+            numRetries += 1;
         }
-        if (decrypted.length() < raw.length())
-            decrypted = sender->unwrap(raw);
+    }
+    if (offset == 0) {
+        THROW(HdfsIOException, "Couldn't fill buffer")
+    }
+    raw.resize(offset);
+    return offset;
 
-        memcpy(buffer, &decrypted[readOffset], size);
-        readOffset += size;
-        return size;
-    }
-
-    int Skip(int count) {
-        THROW(HdfsIOException, "skip not implemented")
-    }
-    std::string & getRaw() {
-        return raw;
-    }
-    std::string getRest() {
-        std::string rest;
-        rest.resize(decrypted.size());
-        memcpy(&rest[0], &decrypted[readOffset], decrypted.size()-readOffset);
-        return rest;
-    }
-
-    void advance() {
-        sender->advanceWrapPosition(raw);
-    }
-private:
-    DataTransferProtocol * sender;
-    shared_ptr<BufferedSocketReader> reader;
-    std::string raw;
-    std::string decrypted;
-    int readOffset;
-    int readTimeout;
-};
-
+}
 DataReader::DataReader(DataTransferProtocol * sender,
         shared_ptr<BufferedSocketReader> reader, int readTimeout) : sender(sender), reader(reader),
             readTimeout(readTimeout), buf(128)
         {
+            // max size of packet
+            raw.resize(65535);
+            decrypted.resize(65535);
         }
 
 std::vector<char>& DataReader::readPacketHeader(const char* text, int size, int &outsize) {
     int nread = size;
-    EncryptedInputStream encrypt(sender, reader, readTimeout);
-    shared_ptr<CopyingInputStreamAdaptor> adap = shared_ptr<CopyingInputStreamAdaptor>(new CopyingInputStreamAdaptor((CopyingInputStream*)&encrypt, 1));
-    CodedInputStream stream(adap.get());
+    if (rest.size()) {
+        decrypted = rest;
+        rest = "";
+    } else {
+        fillData(reader.get(), raw);
+        decrypted = sender->unwrap(raw);
+    }
+    CodedInputStream stream(reinterpret_cast<const uint8_t *>(decrypted.c_str()), decrypted.length());
+    buf.resize(nread);
     bool ret = stream.ReadRaw(&buf[0], nread);
     if (!ret) {
         THROW(HdfsIOException, "cannot parse wrapped datanode data response: %s",
           text);
     }
-    rest = encrypt.getRest();
-    encrypt.advance();
-    buf.resize(nread);
+    rest.assign(&decrypted[nread], decrypted.size()-nread);
     outsize = nread;
     return buf;
+}
+
+void DataReader::reduceRest(int size) {
+    std::string temp;
+    temp.assign(rest.c_str() + size, rest.size()-size);
+    rest = temp;
 }
 
 std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
     int size;
     if (sender->isWrapped()) {
         if (!sender->needsLength()) {
-            EncryptedInputStream encrypt(sender, reader, readTimeout);
-            shared_ptr<CopyingInputStreamAdaptor> adap = shared_ptr<CopyingInputStreamAdaptor>(new CopyingInputStreamAdaptor((CopyingInputStream*)&encrypt, 1));
-            CodedInputStream stream(adap.get());
+            if (rest.size()) {
+                decrypted = rest;
+                rest = "";
+            } else {
+                fillData(reader.get(), raw);
+                decrypted = sender->unwrap(raw);
+            }
+            CodedInputStream stream(reinterpret_cast<const uint8_t *>(decrypted.c_str()), decrypted.length());
             bool ret = stream.ReadVarint32((uint32*)&size);
 
             if (!ret) {
                 THROW(HdfsIOException, "cannot parse wrapped datanode size response: %s",
                   text);
             }
+            buf.resize(size);
             ret = stream.ReadRaw(&buf[0], size);
             if (!ret) {
                 THROW(HdfsIOException, "cannot parse wrapped datanode data response: %s",
                   text);
             }
-            encrypt.advance();
+            int offset;
+            int pos = decrypted.find(&buf[0], 0, size);
+            if (pos == string::npos) {
+                THROW(HdfsIOException, "cannot parse wrapped datanode data response: %s",
+                  text);
+            }
+
+            rest.assign(&decrypted[size+pos], decrypted.size()-(size+pos));
         } else {
             size = reader->readBigEndianInt32(readTimeout);
             reader->readFully(&buf[0], size, readTimeout);
@@ -160,9 +169,9 @@ std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
     }
     else {
         size = reader->readVarint32(readTimeout);
+        buf.resize(size);
         reader->readFully(&buf[0], size, readTimeout);
     }
-    buf.resize(size);
     outsize = size;
     return buf;
 }

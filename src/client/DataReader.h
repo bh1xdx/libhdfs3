@@ -46,7 +46,11 @@ public:
         return rest;
     }
 
+    void reduceRest(int size);
+
 private:
+    std::string raw;
+    std::string decrypted;
     std::string rest;
     std::vector<char> buf;
     DataTransferProtocol *sender;

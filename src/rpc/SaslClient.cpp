@@ -132,7 +132,6 @@ std::string AESClient::encode(const char *input, size_t input_len) {
             THROW(HdfsIOException, "Cannot encrypt AES data %s",
                   err.c_str());
         }
-        printf("split %d %d %d %d\n", remaining, bufsize, offset, len);
         offset += len;
         remaining -= len;
     }
@@ -143,55 +142,37 @@ std::string AESClient::encode(const char *input, size_t input_len) {
             THROW(HdfsIOException, "Cannot encrypt AES data %s",
                   err.c_str());
         }
-        printf("reamining split %d %d %d %d\n", remaining, bufsize, offset, len);
     }
     return result;
 }
 
-void AESClient::advanceWrapPosition(const char *input, size_t input_len) {
-    /*decoffset += input_len;
-    packetsSent += 1;
-    long counter = decoffset / 16;
-    printf("offset %ld %ld\n", decoffset, counter);
-    deciv = calculateIV(initdeciv, counter);
-    printArray(deciv, "dec iv caclulated advance");
-    if (!EVP_CipherInit_ex(decrypt, EVP_aes_128_ctr(), NULL, (const unsigned char*)deckey.c_str(),
-        (const unsigned char*)deciv.c_str(), 0)) {
-        std::string err = ERR_lib_error_string(ERR_get_error());
-        THROW(HdfsIOException, "Cannot reinitialize aes decrypt cipher %s",
-              err.c_str());
-    }
-    EVP_CIPHER_CTX_set_padding(decrypt, 0);*/
-
-}
-std::string AESClient::statelessdecode(const char *input, size_t input_len)
-{
-   /* long counter = decoffset / 16;
-    deciv = calculateIV(initdeciv, counter);
-    printArray(deciv, "dec iv caclulated");
-    if (!EVP_CipherInit_ex(decrypt, EVP_aes_128_ctr(), NULL, (const unsigned char*)deckey.c_str(),
-        (const unsigned char*)deciv.c_str(), 0)) {
-        std::string err = ERR_lib_error_string(ERR_get_error());
-        THROW(HdfsIOException, "Cannot reinitialize aes decrypt cipher %s",
-              err.c_str());
-    }
-    EVP_CIPHER_CTX_set_padding(decrypt, 0);*/
-    return decode(input, input_len);
-}
 
 std::string AESClient::decode(const char *input, size_t input_len) {
     int len;
     std::string result;
     result.resize(input_len);
-    std::string inp;
-    inp.resize(input_len);
-    memcpy(&inp[0], input, input_len);
-    if (!EVP_CipherUpdate (decrypt, (unsigned char*)&result[0], &len, (const unsigned char*)input, input_len)) {
-        std::string err = ERR_lib_error_string(ERR_get_error());
-        THROW(HdfsIOException, "Cannot decrypt AES data %s",
-              err.c_str());
+    int offset = 0;
+    int remaining = input_len;
+
+    while (remaining > bufsize) {
+        if (!EVP_CipherUpdate (decrypt, (unsigned char*)&result[offset], &len, (const unsigned char*)input+offset, bufsize)) {
+            std::string err = ERR_lib_error_string(ERR_get_error());
+            THROW(HdfsIOException, "Cannot decrypt AES data %s",
+                  err.c_str());
+        }
+        offset += len;
+        remaining -= len;
+    }
+    if (remaining) {
+
+        if (!EVP_CipherUpdate (decrypt, (unsigned char*)&result[offset], &len, (const unsigned char*)input+offset, remaining)) {
+            std::string err = ERR_lib_error_string(ERR_get_error());
+            THROW(HdfsIOException, "Cannot decrypt AES data %s",
+                  err.c_str());
+        }
     }
     return result;
+
 }
 
 
@@ -405,20 +386,6 @@ std::string SaslClient::encode(const char *input, size_t input_len) {
         free(output);
     }
     return result;
-}
-
-std::string SaslClient::statelessdecode(const char *input, size_t input_len) {
-    if (aes)
-        return aes->statelessdecode(input, input_len);
-    else
-        THROW(AccessControlException, "Stateless decode only available for AES");
-}
-
-void SaslClient::advanceWrapPosition(const char *input, size_t input_len) {
-    if (aes)
-        return aes->advanceWrapPosition(input, input_len);
-    else
-        THROW(AccessControlException, "Stateless decode only available for AES");
 }
 
 

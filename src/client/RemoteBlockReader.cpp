@@ -33,7 +33,6 @@
 #include "RemoteBlockReader.h"
 #include "SWCrc32c.h"
 #include "WriteBuffer.h"
-#include "DataReader.h"
 
 #include <google/protobuf/io/coded_stream.h>
 
@@ -76,7 +75,8 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
     in = shared_ptr<BufferedSocketReader>(new BufferedSocketReaderImpl(*sock));
     sender = shared_ptr<DataTransferProtocol>(new DataTransferProtocolSender(
         *sock, writeTimeout, datanode.formatAddress(), conf.getEncryptedDatanode(),
-        conf.getSecureDatanode(), key));
+        conf.getSecureDatanode(), key, conf.getCryptoBufferSize()));
+    reader = shared_ptr<DataReader>(new DataReader(sender.get(), in, readTimeout));
     sender->readBlock(eb, token, clientName, start, len);
     checkResponse();
 }
@@ -113,8 +113,7 @@ void RemoteBlockReader::checkResponse() {
     int32_t respSize = 0;
     char error_text[2048];
     sprintf(error_text, "Block: %s, from Datanode: %s.", binfo.toString().c_str(), datanode.formatAddress().c_str());
-    DataReader datareader(sender.get(), in, readTimeout);
-    std::vector<char> &respBuffer = datareader.readResponse(error_text, respSize);
+    std::vector<char> &respBuffer = reader->readResponse(error_text, respSize);
 
     BlockOpResponseProto resp;
 
@@ -203,50 +202,38 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
         }
         if (sender->isWrapped()) {
             std::string data;
-            if (decryptedbuffer.size()) {
-                data = std::string(decryptedbuffer.begin(), decryptedbuffer.end());
 
-            }
-            else {
+            if (sender->needsLength()) {
 
-                if (sender->needsLength()) {
+                int respSize = in->readBigEndianInt32(readTimeout);
+                std::vector<char> respBuffer;
+                if (respSize <= 0 || respSize > 10 * 1024 * 1024) {
+                    THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
+                          respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+                }
 
-                    int respSize = in->readBigEndianInt32(readTimeout);
-                    std::vector<char> respBuffer;
-                    if (respSize <= 0 || respSize > 10 * 1024 * 1024) {
-                        THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
-                              respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
-                    }
-
-                    respBuffer.resize(respSize);
-                    in->readFully(&respBuffer[0], respSize, readTimeout);
-                    data = sender->unwrap(std::string(respBuffer.begin(), respBuffer.end()));
-                    if (packetHeaderLen > data.length()) {
-                        THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
-                              data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
-                    }
-                } else {
-                    int32_t respSize = 0;
-                    char error_text[2048];
-                    sprintf(error_text, "Block: %s, from Datanode: %s.", binfo.toString().c_str(), datanode.formatAddress().c_str());
-                    DataReader datareader(sender.get(), in, readTimeout);
-                    std::vector<char> &respBuffer = datareader.readPacketHeader(error_text, packetHeaderLen, respSize);
-                    data = std::string(respBuffer.begin(), respBuffer.end());
-                    data += datareader.getRest();
-                    if (packetHeaderLen > data.length()) {
-                        THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
-                              data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
-                    }
+                respBuffer.resize(respSize);
+                in->readFully(&respBuffer[0], respSize, readTimeout);
+                data = sender->unwrap(std::string(respBuffer.begin(), respBuffer.end()));
+                if (packetHeaderLen > data.length()) {
+                    THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
+                          data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
+                }
+            } else {
+                int32_t respSize = 0;
+                char error_text[2048];
+                sprintf(error_text, "Block: %s, from Datanode: %s.", binfo.toString().c_str(), datanode.formatAddress().c_str());
+                std::vector<char> &respBuffer = reader->readPacketHeader(error_text, packetHeaderLen, respSize);
+                data = std::string(respBuffer.begin(), respBuffer.end()) + reader->getRest();
+                if (packetHeaderLen > data.length()) {
+                    THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
+                          data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
                 }
             }
 
-            buf2.resize(packetHeaderLen);
-            memcpy(&buf2[0], data.c_str(), packetHeaderLen);
-            if (packetHeaderLen < data.length()) {
-                int remainder = data.length() - packetHeaderLen;
-                decryptedbuffer.resize(remainder);
-                memcpy(&decryptedbuffer[0], data.c_str()+packetHeaderLen, remainder);
-            }
+
+            buf2.resize(data.length());
+            memcpy(&buf2[0], data.c_str(), data.length());
 
         } else {
             in->readFully(&buf2[0], packetHeaderLen, readTimeout);
@@ -262,7 +249,6 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
 
 void RemoteBlockReader::readNextPacket() {
     assert(position >= size);
-    decryptedbuffer.clear();
     lastHeader = readPacketHeader();
     int dataSize = lastHeader->getDataLen();
     int64_t pendingAhead = 0;
@@ -283,8 +269,9 @@ void RemoteBlockReader::readNextPacket() {
         if (!sender->isWrapped()) {
             in->readFully(&buffer[0], size, readTimeout);
         } else {
-            memcpy(&buffer[0], &decryptedbuffer[0], size);
-            decryptedbuffer.erase(decryptedbuffer.begin(), decryptedbuffer.begin() + size);
+            std::string& rest = reader->getRest();
+            memcpy(&buffer[0], &rest[0], size);
+            reader->reduceRest(size);
         }
         lastSeqNo = lastHeader->getSeqno();
 
