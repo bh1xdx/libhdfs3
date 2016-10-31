@@ -47,6 +47,7 @@ public:
     }
 
     void reduceRest(int size);
+    void getMissing(int size);
 
 private:
     std::string raw;

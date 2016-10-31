@@ -224,7 +224,7 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
                 char error_text[2048];
                 sprintf(error_text, "Block: %s, from Datanode: %s.", binfo.toString().c_str(), datanode.formatAddress().c_str());
                 std::vector<char> &respBuffer = reader->readPacketHeader(error_text, packetHeaderLen, respSize);
-                data = std::string(respBuffer.begin(), respBuffer.end()) + reader->getRest();
+                data = std::string(respBuffer.begin(), respBuffer.end());
                 if (packetHeaderLen > data.length()) {
                     THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
                           data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
@@ -270,6 +270,10 @@ void RemoteBlockReader::readNextPacket() {
             in->readFully(&buffer[0], size, readTimeout);
         } else {
             std::string& rest = reader->getRest();
+            if (rest.size() < size) {
+                reader->getMissing(size);
+                rest = reader->getRest();
+            }
             memcpy(&buffer[0], &rest[0], size);
             reader->reduceRest(size);
         }

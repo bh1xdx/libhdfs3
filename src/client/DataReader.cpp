@@ -48,13 +48,13 @@ namespace Internal {
 int fillData(BufferedSocketReader *reader, std::string &raw) {
     int offset=0;
     int numRetries=0;
-    raw.resize(65535);
-    while (numRetries < 5) {
+    raw.resize(65536);
+    while (numRetries < 5 && offset < 65536) {
         if (reader->poll(100)) {
             int nread = 0;
 
             try {
-                nread = reader->read(&raw[offset], 65535-offset);
+                nread = reader->read(&raw[offset], 65536-offset);
             }
             catch (HdfsEndOfStream ex) {
                 if (offset == 0)
@@ -83,8 +83,8 @@ DataReader::DataReader(DataTransferProtocol * sender,
             readTimeout(readTimeout), buf(128)
         {
             // max size of packet
-            raw.resize(65535);
-            decrypted.resize(65535);
+            raw.resize(65536);
+            decrypted.resize(65536);
         }
 
 std::vector<char>& DataReader::readPacketHeader(const char* text, int size, int &outsize) {
@@ -92,6 +92,10 @@ std::vector<char>& DataReader::readPacketHeader(const char* text, int size, int 
     if (rest.size()) {
         decrypted = rest;
         rest = "";
+        if (decrypted.size() < size) {
+            fillData(reader.get(), raw);
+            decrypted += sender->unwrap(raw);
+        }
     } else {
         fillData(reader.get(), raw);
         decrypted = sender->unwrap(raw);
@@ -106,6 +110,14 @@ std::vector<char>& DataReader::readPacketHeader(const char* text, int size, int 
     rest.assign(&decrypted[nread], decrypted.size()-nread);
     outsize = nread;
     return buf;
+}
+
+void DataReader::getMissing(int size) {
+    while (size > rest.size()) {
+        fillData(reader.get(), raw);
+        decrypted = sender->unwrap(raw);
+        rest = rest + decrypted;
+    }
 }
 
 void DataReader::reduceRest(int size) {
@@ -131,6 +143,10 @@ std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
             if (!ret) {
                 THROW(HdfsIOException, "cannot parse wrapped datanode size response: %s",
                   text);
+            }
+            if (decrypted.size() < size) {
+                fillData(reader.get(), raw);
+                decrypted += sender->unwrap(raw);
             }
             buf.resize(size);
             ret = stream.ReadRaw(&buf[0], size);
