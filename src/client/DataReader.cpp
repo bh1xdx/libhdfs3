@@ -112,12 +112,20 @@ std::vector<char>& DataReader::readPacketHeader(const char* text, int size, int 
     return buf;
 }
 
+void DataReader::setRest(const char* data, int size) {
+    rest.assign(data, size);
+}
+
 void DataReader::getMissing(int size) {
-    while (size > rest.size()) {
-        fillData(reader.get(), raw);
-        decrypted = sender->unwrap(raw);
-        rest = rest + decrypted;
-    }
+    if (sender->isWrapped()) {
+        if (!sender->needsLength()) {
+            while (size > rest.size()) {
+                fillData(reader.get(), raw);
+                decrypted = sender->unwrap(raw);
+                rest = rest + decrypted;
+            }
+        }
+     }
 }
 
 void DataReader::reduceRest(int size) {
@@ -164,6 +172,7 @@ std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
             rest.assign(&decrypted[size+pos], decrypted.size()-(size+pos));
         } else {
             size = reader->readBigEndianInt32(readTimeout);
+            buf.resize(size);
             reader->readFully(&buf[0], size, readTimeout);
 
             std::string data = sender->unwrap(std::string(buf.begin(), buf.end()));

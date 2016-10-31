@@ -46,6 +46,7 @@ public:
         return rest;
     }
 
+    void setRest(const char* data, int size);
     void reduceRest(int size);
     void getMissing(int size);
 

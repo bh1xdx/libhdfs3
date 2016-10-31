@@ -205,19 +205,27 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
 
             if (sender->needsLength()) {
 
-                int respSize = in->readBigEndianInt32(readTimeout);
-                std::vector<char> respBuffer;
-                if (respSize <= 0 || respSize > 10 * 1024 * 1024) {
-                    THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
-                          respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+                std::string rest = reader->getRest();
+                if (rest.size()) {
+                    data = rest;
+                    reader->reduceRest(packetHeaderLen);
                 }
+                else {
+                    int respSize = in->readBigEndianInt32(readTimeout);
+                    std::vector<char> respBuffer;
+                    if (respSize <= 0 || respSize > 10 * 1024 * 1024) {
+                        THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
+                              respSize, binfo.toString().c_str(), datanode.formatAddress().c_str());
+                    }
 
-                respBuffer.resize(respSize);
-                in->readFully(&respBuffer[0], respSize, readTimeout);
-                data = sender->unwrap(std::string(respBuffer.begin(), respBuffer.end()));
-                if (packetHeaderLen > data.length()) {
-                    THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
-                          data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
+                    respBuffer.resize(respSize);
+                    in->readFully(&respBuffer[0], respSize, readTimeout);
+                    data = sender->unwrap(std::string(respBuffer.begin(), respBuffer.end()));
+                    if (packetHeaderLen > data.length()) {
+                        THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
+                              data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
+                    }
+                    reader->setRest(data.c_str()+packetHeaderLen, data.size()-packetHeaderLen);
                 }
             } else {
                 int32_t respSize = 0;
