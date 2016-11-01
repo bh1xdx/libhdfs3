@@ -119,6 +119,14 @@ void PipelineImpl::transfer(const ExtendedBlock & blk, const DatanodeInfo & src,
     BlockOpResponseProto resp;
 
     if (!resp.ParseFromArray(&buf[0], size)) {
+        DataTransferEncryptorMessageProto resp2;
+        if (resp2.ParseFromArray(&buf[0], size))
+        {
+            if (resp2.status() != DataTransferEncryptorMessageProto_DataTransferEncryptorStatus_SUCCESS) {
+                THROW(HdfsIOException, "Error doing transfer from %s for block %s.: %s",
+              nodes[0].formatAddress().c_str(), lastBlock->toString().c_str(), resp2.message().c_str());
+            }
+        }
         THROW(HdfsIOException, "cannot parse datanode response from %s for block %s.",
               src.formatAddress().c_str(), lastBlock->toString().c_str());
     }
@@ -616,6 +624,14 @@ void PipelineImpl::createBlockOutputStream(const Token & token, int64_t gs, bool
         BlockOpResponseProto resp;
 
         if (!resp.ParseFromArray(&buf[0], size)) {
+            DataTransferEncryptorMessageProto resp2;
+            if (resp2.ParseFromArray(&buf[0], size))
+            {
+                if (resp2.status() != DataTransferEncryptorMessageProto_DataTransferEncryptorStatus_SUCCESS) {
+                    THROW(HdfsIOException, "Error creating output stream from %s for block %s.: %s",
+                  nodes[0].formatAddress().c_str(), lastBlock->toString().c_str(), resp2.message().c_str());
+                }
+            }
             THROW(HdfsIOException, "cannot parse datanode response from %s for block %s.",
                   nodes[0].formatAddress().c_str(), lastBlock->toString().c_str());
         }

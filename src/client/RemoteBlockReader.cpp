@@ -118,6 +118,15 @@ void RemoteBlockReader::checkResponse() {
     BlockOpResponseProto resp;
 
     if (!resp.ParseFromArray(&respBuffer[0], respBuffer.size())) {
+        DataTransferEncryptorMessageProto resp2;
+        if (resp2.ParseFromArray(&respBuffer[0], respBuffer.size()))
+        {
+            if (resp2.status() != DataTransferEncryptorMessageProto_DataTransferEncryptorStatus_SUCCESS) {
+                THROW(HdfsIOException, "Error checking response for block: %s, from Datanode: %s: %s",
+              binfo.toString().c_str(), datanode.formatAddress().c_str(), resp2.message().c_str());
+            }
+        }
+
         THROW(HdfsIOException, "RemoteBlockReader cannot parse BlockOpResponseProto from Datanode response, "
               "Block: %s, from Datanode: %s", binfo.toString().c_str(), datanode.formatAddress().c_str());
     }

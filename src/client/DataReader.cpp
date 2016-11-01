@@ -45,10 +45,11 @@ namespace Hdfs {
 namespace Internal {
 
 
-int fillData(BufferedSocketReader *reader, std::string &raw) {
+int fillData(BufferedSocketReader *reader, std::string &raw, bool &error) {
     int offset=0;
     int numRetries=0;
     raw.resize(65536);
+    error = false;
     while (numRetries < 5 && offset < 65536) {
         if (reader->poll(100)) {
             int nread = 0;
@@ -59,6 +60,12 @@ int fillData(BufferedSocketReader *reader, std::string &raw) {
             catch (HdfsEndOfStream ex) {
                 if (offset == 0)
                     raise;
+                break;
+            }
+            catch (HdfsNetworkException ex) {
+                if (offset == 0)
+                    raise;
+                error = true;
                 break;
             }
             if (nread) {
@@ -93,12 +100,17 @@ std::vector<char>& DataReader::readPacketHeader(const char* text, int size, int 
         decrypted = rest;
         rest = "";
         if (decrypted.size() < size) {
-            fillData(reader.get(), raw);
+            bool error = false;
+            fillData(reader.get(), raw, error);
             decrypted += sender->unwrap(raw);
         }
     } else {
-        fillData(reader.get(), raw);
-        decrypted = sender->unwrap(raw);
+        bool error = false;
+        fillData(reader.get(), raw, error);
+        if (!error)
+            decrypted = sender->unwrap(raw);
+        else
+            decrypted = raw;
     }
     CodedInputStream stream(reinterpret_cast<const uint8_t *>(decrypted.c_str()), decrypted.length());
     buf.resize(nread);
@@ -117,10 +129,11 @@ void DataReader::setRest(const char* data, int size) {
 }
 
 void DataReader::getMissing(int size) {
+    bool error = false;
     if (sender->isWrapped()) {
         if (!sender->needsLength()) {
             while (size > rest.size()) {
-                fillData(reader.get(), raw);
+                fillData(reader.get(), raw, error);
                 decrypted = sender->unwrap(raw);
                 rest = rest + decrypted;
             }
@@ -136,14 +149,18 @@ void DataReader::reduceRest(int size) {
 
 std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
     int size;
+    bool error = false;
     if (sender->isWrapped()) {
         if (!sender->needsLength()) {
             if (rest.size()) {
                 decrypted = rest;
                 rest = "";
             } else {
-                fillData(reader.get(), raw);
-                decrypted = sender->unwrap(raw);
+                fillData(reader.get(), raw, error);
+                if (!error)
+                    decrypted = sender->unwrap(raw);
+                else
+                    decrypted = raw;
             }
             CodedInputStream stream(reinterpret_cast<const uint8_t *>(decrypted.c_str()), decrypted.length());
             bool ret = stream.ReadVarint32((uint32*)&size);
@@ -153,7 +170,7 @@ std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
                   text);
             }
             if (decrypted.size() < size) {
-                fillData(reader.get(), raw);
+                fillData(reader.get(), raw, error);
                 decrypted += sender->unwrap(raw);
             }
             buf.resize(size);

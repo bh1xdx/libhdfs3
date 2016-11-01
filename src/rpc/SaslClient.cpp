@@ -94,14 +94,21 @@ AESClient::AESClient(std::string enckey, std::string enciv,
               err.c_str());
     }
     std::string iv = enciv;
-    if (!EVP_CipherInit_ex(encrypt, EVP_aes_128_ctr(), NULL,
+    const EVP_CIPHER *cipher = NULL;
+    if (enckey.length() == 32)
+        cipher = EVP_aes_256_ctr();
+    else if (enckey.length() == 16)
+        cipher = EVP_aes_128_ctr();
+    else
+        cipher = EVP_aes_192_ctr();
+    if (!EVP_CipherInit_ex(encrypt, cipher, NULL,
         (const unsigned char*)enckey.c_str(), (const unsigned char*)iv.c_str(), 1)) {
         std::string err = ERR_lib_error_string(ERR_get_error());
         THROW(HdfsIOException, "Cannot initialize aes encrypt cipher %s",
               err.c_str());
     }
     iv = deciv;
-    if (!EVP_CipherInit_ex(decrypt, EVP_aes_128_ctr(), NULL, (const unsigned char*)deckey.c_str(),
+    if (!EVP_CipherInit_ex(decrypt, cipher, NULL, (const unsigned char*)deckey.c_str(),
         (const unsigned char*)iv.c_str(), 0)) {
         std::string err = ERR_lib_error_string(ERR_get_error());
         THROW(HdfsIOException, "Cannot initialize aes decrypt cipher %s",
