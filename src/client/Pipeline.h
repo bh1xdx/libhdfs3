@@ -40,6 +40,7 @@
 #include "server/Namenode.h"
 #include "SessionConfig.h"
 #include "Thread.h"
+#include "DataTransferProtocolSender.h"
 
 #include <vector>
 #include <deque>
@@ -188,6 +189,7 @@ private:
     int64_t bytesSent; //the size of bytes has sent.
     PacketPool & packetPool;
     shared_ptr<BufferedSocketReader> reader;
+    shared_ptr<DataTransferProtocolSender> sender;
     shared_ptr<FileSystemInter> filesystem;
     shared_ptr<LocatedBlock> lastBlock;
     shared_ptr<Socket> sock;

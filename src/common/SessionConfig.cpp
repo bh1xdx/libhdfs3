@@ -71,6 +71,10 @@ SessionConfig::SessionConfig(const Config & conf) {
             &useMappedFile, "input.localread.mappedfile", false
         }, {
             &legacyLocalBlockReader, "dfs.client.use.legacy.blockreader.local", false
+        }, {
+            &encryptedDatanode, "dfs.encrypt.data.transfer", false
+        },{
+            &secureDatanode, "dfs.block.access.token.enable", false
         }
     };
     ConfigDefault<int32_t> i32Values[] = {
@@ -134,6 +138,8 @@ SessionConfig::SessionConfig(const Config & conf) {
             &socketCacheExpiry, "dfs.client.socketcache.expiryMsec", 3000, bind(CheckRangeGE<int32_t>, _1, _2, 0)
         }, {
             &socketCacheCapacity, "dfs.client.socketcache.capacity", 16, bind(CheckRangeGE<int32_t>, _1, _2, 0)
+        }, {
+            &cryptoBufferSize, "hadoop.security.crypto.buffer.size", 8192,
         }
     };
     ConfigDefault<int64_t> i64Values [] = {
