@@ -283,7 +283,7 @@ void readSaslMessage(Socket & sock, int readTimeout, DataTransferEncryptorMessag
 }
 
 bool DataTransferProtocolSender::isWrapped() {
-    if (saslClient)
+    if (saslClient && (saslClient->isPrivate() || saslClient->isIntegrity()))
         return true;
     return false;
 }
