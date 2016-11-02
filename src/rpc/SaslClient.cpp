@@ -231,7 +231,11 @@ SaslClient::~SaslClient() {
 }
 
 bool SaslClient::needsLength() {
-    return aes == NULL;
+    if (aes != NULL)
+        return false;
+    if ((!privacy && !integrity) || (!complete))
+        return false;
+    return true;
 }
 
 void SaslClient::setAes(AESClient *client) {
