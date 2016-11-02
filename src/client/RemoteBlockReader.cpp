@@ -229,10 +229,10 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
 
                     respBuffer.resize(respSize);
                     in->readFully(&respBuffer[0], respSize, readTimeout);
-                    data = sender->unwrap(std::string(respBuffer.begin(), respBuffer.end()));
-                    if (packetHeaderLen > data.length()) {
+                    data = sender->unwrap(std::string(&respBuffer[0], respSize));
+                    if (packetHeaderLen > (int)data.length()) {
                         THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
-                              data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
+                              (int)data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
                     }
                     reader->setRest(data.c_str()+packetHeaderLen, data.size()-packetHeaderLen);
                 }
@@ -242,9 +242,9 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
                 sprintf(error_text, "Block: %s, from Datanode: %s.", binfo.toString().c_str(), datanode.formatAddress().c_str());
                 std::vector<char> &respBuffer = reader->readPacketHeader(error_text, packetHeaderLen, respSize);
                 data = std::string(respBuffer.begin(), respBuffer.end());
-                if (packetHeaderLen > data.length()) {
+                if (packetHeaderLen > (int)data.length()) {
                     THROW(HdfsIOException, "RemoteBlockReader get a invalid packer header size: %d, Block: %s, from Datanode: %s",
-                          data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
+                          (int)data.length(), binfo.toString().c_str(), datanode.formatAddress().c_str());
                 }
             }
 
@@ -287,7 +287,7 @@ void RemoteBlockReader::readNextPacket() {
             in->readFully(&buffer[0], size, readTimeout);
         } else {
             std::string& rest = reader->getRest();
-            if (rest.size() < size) {
+            if ((int)rest.size() < size) {
                 reader->getMissing(size);
                 rest = reader->getRest();
             }

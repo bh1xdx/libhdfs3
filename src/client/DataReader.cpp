@@ -59,12 +59,12 @@ int fillData(BufferedSocketReader *reader, std::string &raw, bool &error) {
             }
             catch (HdfsEndOfStream ex) {
                 if (offset == 0)
-                    raise;
+                    throw;
                 break;
             }
             catch (HdfsNetworkException ex) {
                 if (offset == 0)
-                    raise;
+                    throw;
                 error = true;
                 break;
             }
@@ -86,8 +86,8 @@ int fillData(BufferedSocketReader *reader, std::string &raw, bool &error) {
 
 }
 DataReader::DataReader(DataTransferProtocol * sender,
-        shared_ptr<BufferedSocketReader> reader, int readTimeout) : sender(sender), reader(reader),
-            readTimeout(readTimeout), buf(128)
+        shared_ptr<BufferedSocketReader> reader, int readTimeout) : buf(128), sender(sender),
+        reader(reader), readTimeout(readTimeout)
         {
             // max size of packet
             raw.resize(65536);
@@ -99,7 +99,7 @@ std::vector<char>& DataReader::readPacketHeader(const char* text, int size, int 
     if (rest.size()) {
         decrypted = rest;
         rest = "";
-        if (decrypted.size() < size) {
+        if ((int)decrypted.size() < size) {
             bool error = false;
             fillData(reader.get(), raw, error);
             decrypted += sender->unwrap(raw);
@@ -132,7 +132,7 @@ void DataReader::getMissing(int size) {
     bool error = false;
     if (sender->isWrapped()) {
         if (!sender->needsLength()) {
-            while (size > rest.size()) {
+            while (size > (int)rest.size()) {
                 fillData(reader.get(), raw, error);
                 decrypted = sender->unwrap(raw);
                 rest = rest + decrypted;
@@ -169,7 +169,7 @@ std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
                 THROW(HdfsIOException, "cannot parse wrapped datanode size response: %s",
                   text);
             }
-            if (decrypted.size() < size) {
+            if ((int)decrypted.size() < size) {
                 fillData(reader.get(), raw, error);
                 decrypted += sender->unwrap(raw);
             }
@@ -179,9 +179,8 @@ std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
                 THROW(HdfsIOException, "cannot parse wrapped datanode data response: %s",
                   text);
             }
-            int offset;
             int pos = decrypted.find(&buf[0], 0, size);
-            if (pos == string::npos) {
+            if (pos == (int)string::npos) {
                 THROW(HdfsIOException, "cannot parse wrapped datanode data response: %s",
                   text);
             }
@@ -192,7 +191,7 @@ std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
             buf.resize(size);
             reader->readFully(&buf[0], size, readTimeout);
 
-            std::string data = sender->unwrap(std::string(buf.begin(), buf.end()));
+            std::string data = sender->unwrap(&buf[0], size);
 
             bool ret;
             CodedInputStream stream(reinterpret_cast<const uint8_t *>(data.c_str()), data.length());

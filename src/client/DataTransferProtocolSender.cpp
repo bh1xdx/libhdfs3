@@ -260,7 +260,7 @@ void readSaslMessage(Socket & sock, int readTimeout, DataTransferEncryptorMessag
                         std::string &datanode) {
     std::vector<char> buffer(128);
     std::vector<char> body(128);
-    uint32_t headerSize = 0, bodySize = 0;
+    uint32_t headerSize = 0;
     /*
      * read response header
      */
@@ -301,6 +301,16 @@ std::string DataTransferProtocolSender::unwrap(std::string data) {
 
 std::string DataTransferProtocolSender::wrap(std::string data) {
     std::string rawdata = saslClient->encode(data.c_str(), data.length());
+    return rawdata;
+}
+
+std::string DataTransferProtocolSender::unwrap(const char *input, size_t input_len) {
+    std::string rawdata = saslClient->decode(input, input_len);
+    return rawdata;
+}
+
+std::string DataTransferProtocolSender::wrap(const char *input, size_t input_len) {
+    std::string rawdata = saslClient->encode(input, input_len);
     return rawdata;
 }
 

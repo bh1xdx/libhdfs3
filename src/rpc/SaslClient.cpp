@@ -60,8 +60,8 @@ std::string calculateIV(std::string initIV, long counter) {
 
 void printArray(std::string str, const char* text) {
     int i=0;
-    printf("length %d: %s\n", str.length(), text);
-    for (i=0; i < str.length(); i++) {
+    printf("length %d: %s\n", (int)str.length(), text);
+    for (i=0; i < (int)str.length(); i++) {
         printf("%02d ", (int)str[i]);
     }
     printf("\n");
@@ -70,8 +70,9 @@ void printArray(std::string str, const char* text) {
 bool AESClient::initialized = false;
 
 AESClient::AESClient(std::string enckey, std::string enciv,
-              std::string deckey, std::string deciv, int bufsize) : enckey(enckey),
-                enciv(enciv), deckey(deckey), deciv(deciv), initdeciv(deciv), bufsize(bufsize), decoffset(0), packetsSent(0)
+              std::string deckey, std::string deciv, int bufsize) :
+              encrypt(NULL), decrypt(NULL), packetsSent(0), decoffset(0), bufsize(bufsize),
+              enckey(enckey), enciv(enciv), deckey(deckey), deciv(deciv), initdeciv(deciv)
 {
     if (!initialized) {
       ERR_load_crypto_strings();
@@ -187,9 +188,9 @@ std::string AESClient::decode(const char *input, size_t input_len) {
 
 SaslClient::SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
                        const std::string & principal, bool encryptedData) :
-     complete(false), changeLength(false),
+     aes(NULL), ctx(NULL), session(NULL), changeLength(false), complete(false),
      privacy(false), integrity(false),
-     theAuth(auth), theToken(token), thePrincipal(principal), encryptedData(encryptedData), aes(NULL)  {
+     theAuth(auth), theToken(token), thePrincipal(principal), encryptedData(encryptedData)   {
     int rc;
     ctx = NULL;
     RpcAuth method = RpcAuth(RpcAuth::ParseMethod(auth.method()));

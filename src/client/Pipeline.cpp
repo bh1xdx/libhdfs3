@@ -51,9 +51,9 @@ namespace Internal {
 PipelineImpl::PipelineImpl(bool append, const char * path, const SessionConfig & conf,
                            shared_ptr<FileSystemInter> filesystem, int checksumType, int chunkSize,
                            int replication, int64_t bytesSent, PacketPool & packetPool, shared_ptr<LocatedBlock> lastBlock) :
-    checksumType(checksumType), chunkSize(chunkSize), errorIndex(-1), replication(replication), bytesAcked(
+    config(conf), checksumType(checksumType), chunkSize(chunkSize), errorIndex(-1), replication(replication), bytesAcked(
         bytesSent), bytesSent(bytesSent), packetPool(packetPool), filesystem(filesystem), lastBlock(lastBlock), path(
-            path), config(conf) {
+            path) {
     canAddDatanode = conf.canAddDatanode();
     canAddDatanodeBest = conf.canAddDatanodeBest();
     blockWriteRetry = conf.getBlockWriteRetry();
@@ -251,7 +251,7 @@ void PipelineImpl::buildForAppendOrRecovery(bool recovery) {
                 LOG(INFO, "Pipeline: node %s was able to ping. Will continue to use.",
                     nodes[errorIndex].formatAddress().c_str());
                 removed = nodes[errorIndex];
-                if (errorIndex < storageIDs.size())
+                if (errorIndex < (int)storageIDs.size())
                     storageID = storageIDs[errorIndex];
                 useRemoved = true;
             }

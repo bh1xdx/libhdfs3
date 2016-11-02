@@ -120,6 +120,8 @@ public:
     virtual bool isWrapped() = 0;
     virtual std::string unwrap(std::string data) = 0;
     virtual std::string wrap(std::string data) = 0;
+    virtual std::string unwrap(const char *input, size_t input_len) = 0;
+    virtual std::string wrap(const char *input, size_t input_len) = 0;
 };
 
 }
