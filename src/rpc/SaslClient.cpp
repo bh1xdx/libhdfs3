@@ -179,6 +179,7 @@ std::string AESClient::decode(const char *input, size_t input_len) {
                   err.c_str());
         }
     }
+    decoffset += input_len;
     return result;
 
 }

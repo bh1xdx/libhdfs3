@@ -45,13 +45,51 @@ namespace Hdfs {
 namespace Internal {
 
 
-int fillData(BufferedSocketReader *reader, std::string &raw, bool &error) {
+int fillData(BufferedSocketReader *reader, std::string &raw, bool &error, DataTransferProtocol *sender=NULL) {
     int offset=0;
     int numRetries=0;
     raw.resize(65536);
+    int polltime = 1000;
     error = false;
+    if (sender) {
+        std::string temp;
+        temp.resize(5);
+        reader->readFully(&temp[0], 5, 30000);
+        std::string data = sender->unwrap(temp);
+        CodedInputStream stream(reinterpret_cast<const uint8_t *>(data.c_str()), data.length());
+        int size;
+        bool ret = stream.ReadVarint32((uint32*)&size);
+        if (!ret || size <= 0 || size > 65536)
+        {
+            // Not encrypted error case
+            memcpy(&raw[0], &temp[0], 5);
+            offset = 5;
+            error = true;
+        } else {
+
+            // This is the logic used by ReadVarint32. Unfortunately
+            // the class does not give a way to tell how data was consumed.
+            const uint8* ptr = (uint8*) data.c_str();
+            int used = 1;
+            for (int i=0; i < (int)data.size(); i++) {
+                if (!(*ptr & 0x80))
+                    break;
+                used += 1;
+                ptr += 1;
+            }
+            int remaining = data.length() - used;
+            if (size - remaining) {
+                temp.resize(size-remaining);
+                reader->readFully(&temp[0], size-remaining, 30000);
+                data = data + sender->unwrap(temp);
+            }
+            raw.assign(data);
+            return data.length();
+        }
+    }
+
     while (numRetries < 5 && offset < 65536) {
-        if (reader->poll(100)) {
+        if (reader->poll(polltime)) {
             int nread = 0;
 
             try {
@@ -74,6 +112,8 @@ int fillData(BufferedSocketReader *reader, std::string &raw, bool &error) {
             } else {
                 numRetries += 1;
             }
+            if (offset > 10)
+                polltime = 10;
         } else {
             numRetries += 1;
         }
@@ -156,11 +196,8 @@ std::vector<char>& DataReader::readResponse(const char* text, int &outsize) {
                 decrypted = rest;
                 rest = "";
             } else {
-                fillData(reader.get(), raw, error);
-                if (!error)
-                    decrypted = sender->unwrap(raw);
-                else
-                    decrypted = raw;
+                fillData(reader.get(), raw, error, sender);
+                decrypted = raw;
             }
             CodedInputStream stream(reinterpret_cast<const uint8_t *>(decrypted.c_str()), decrypted.length());
             bool ret = stream.ReadVarint32((uint32*)&size);
