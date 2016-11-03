@@ -294,12 +294,12 @@ bool DataTransferProtocolSender::needsLength() {
     return true;
 }
 
-std::string DataTransferProtocolSender::unwrap(std::string data) {
+std::string DataTransferProtocolSender::unwrap(std::string& data) {
     std::string rawdata = saslClient->decode(data.c_str(), data.length());
     return rawdata;
 }
 
-std::string DataTransferProtocolSender::wrap(std::string data) {
+std::string DataTransferProtocolSender::wrap(std::string& data) {
     std::string rawdata = saslClient->encode(data.c_str(), data.length());
     return rawdata;
 }
