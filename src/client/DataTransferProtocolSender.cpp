@@ -139,6 +139,10 @@ void DataTransferProtocolSender::readBlock(const ExtendedBlock & blk,
         Send(sock, READ_BLOCK, &op, writeTimeout, saslClient);
     } catch (const HdfsCanceled & e) {
         throw;
+    } catch (const HdfsEndOfStream & e) {
+        NESTED_THROW(HdfsEndOfStream,
+                     "DataTransferProtocolSender cannot send write request to datanode %s.",
+                     datanode.c_str());;
     } catch (const HdfsException & e) {
         NESTED_THROW(HdfsIOException,
                      "DataTransferProtocolSender cannot send read request to datanode %s.",
@@ -168,6 +172,10 @@ void DataTransferProtocolSender::writeBlock(const ExtendedBlock & blk,
         Send(sock, WRITE_BLOCK, &op, writeTimeout, saslClient);
     } catch (const HdfsCanceled & e) {
         throw;
+    } catch (const HdfsEndOfStream & e) {
+        NESTED_THROW(HdfsEndOfStream,
+                     "DataTransferProtocolSender cannot send write request to datanode %s.",
+                     datanode.c_str());;
     } catch (const HdfsException & e) {
         NESTED_THROW(HdfsIOException,
                      "DataTransferProtocolSender cannot send write request to datanode %s.",
@@ -187,6 +195,10 @@ void DataTransferProtocolSender::transferBlock(const ExtendedBlock & blk,
         Send(sock, TRANSFER_BLOCK, &op, writeTimeout, saslClient);
     } catch (const HdfsCanceled & e) {
         throw;
+    } catch (const HdfsEndOfStream & e) {
+        NESTED_THROW(HdfsEndOfStream,
+                     "DataTransferProtocolSender cannot send write request to datanode %s.",
+                     datanode.c_str());;
     } catch (const HdfsException & e) {
         NESTED_THROW(HdfsIOException,
                      "DataTransferProtocolSender cannot send transfer request to datanode %s.",
@@ -220,6 +232,10 @@ void DataTransferProtocolSender::requestShortCircuitFds(const ExtendedBlock blk,
         Send(sock, REQUEST_SHORT_CIRCUIT_FDS, &op, writeTimeout, saslClient);
     } catch (const HdfsCanceled& e) {
         throw;
+    } catch (const HdfsEndOfStream & e) {
+        NESTED_THROW(HdfsEndOfStream,
+                     "DataTransferProtocolSender cannot send write request to datanode %s.",
+                     datanode.c_str());;
     } catch (const HdfsException& e) {
         NESTED_THROW(HdfsIOException,
                      "DataTransferProtocolSender cannot send request "

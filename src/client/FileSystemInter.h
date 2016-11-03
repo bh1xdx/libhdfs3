@@ -458,7 +458,7 @@ public:
      * Get the configuration used in filesystem.
      * @return return the configuration instance.
      */
-    virtual const SessionConfig & getConf() const = 0;
+    virtual SessionConfig & getConf() = 0;
 
     /**
      * Get the user used in filesystem.

@@ -70,6 +70,26 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
     readTimeout = conf.getInputReadTimeout();
     writeTimeout = conf.getInputWriteTimeout();
     connTimeout = conf.getInputConnTimeout();
+    setupReader(conf);
+    try {
+        sender->readBlock(eb, token, clientName, start, len);
+    } catch (HdfsEndOfStream &ex) {
+        if (!conf.getEncryptedDatanode() && conf.getSecureDatanode()) {
+            conf.setSecureDatanode(false);
+            filesystem->getConf().setSecureDatanode(false);
+            LOG(INFO, "Tried to use SASL connection but failed, falling back to non SASL");
+            cleanupSocket();
+            setupReader(conf);
+            sender->readBlock(eb, token, clientName, start, len);
+        } else {
+            throw;
+        }
+    }
+    checkResponse();
+}
+
+void RemoteBlockReader::setupReader(SessionConfig& conf)
+{
     sock = getNextPeer(datanode);
     EncryptionKey key = filesystem->getEncryptionKeys();
     in = shared_ptr<BufferedSocketReader>(new BufferedSocketReaderImpl(*sock));
@@ -77,17 +97,20 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
         *sock, writeTimeout, datanode.formatAddress(), conf.getEncryptedDatanode(),
         conf.getSecureDatanode(), key, conf.getCryptoBufferSize()));
     reader = shared_ptr<DataReader>(new DataReader(sender.get(), in, readTimeout));
-    sender->readBlock(eb, token, clientName, start, len);
-    checkResponse();
 }
 
-RemoteBlockReader::~RemoteBlockReader() {
+void RemoteBlockReader::cleanupSocket() {
     bool reuse = sentStatus && sender == NULL;
     if (reuse) {
         peerCache.addConnection(sock, datanode);
     } else {
         sock->close();
     }
+
+}
+
+RemoteBlockReader::~RemoteBlockReader() {
+    cleanupSocket();
 }
 
 shared_ptr<Socket> RemoteBlockReader::getNextPeer(const DatanodeInfo& dn) {
