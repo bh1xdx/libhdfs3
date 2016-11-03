@@ -359,6 +359,9 @@ void DataTransferProtocolSender::setupSasl(const ExtendedBlock blk, const Token&
     ourToken.setPassword(blockToken.getPassword());
     ourToken.setService(blockToken.getService());
 
+    if (isSecure && theKey.getNonce().length() == 0)
+        isSecure = false;
+
     if (isSecure) {
         char temp[100];
         std::string nonce = theKey.getNonce();
