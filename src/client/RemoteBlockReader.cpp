@@ -82,7 +82,8 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
 }
 
 RemoteBlockReader::~RemoteBlockReader() {
-    if (sentStatus) {
+    bool reuse = sentStatus && sender == NULL;
+    if (reuse) {
         peerCache.addConnection(sock, datanode);
     } else {
         sock->close();
