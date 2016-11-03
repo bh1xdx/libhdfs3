@@ -49,7 +49,7 @@ int fillData(BufferedSocketReader *reader, std::string &raw, bool &error, DataTr
     int offset=0;
     int numRetries=0;
     raw.resize(65536);
-    int polltime = 1000;
+    int polltime = 100;
     error = false;
     if (sender) {
         std::string temp;
@@ -113,7 +113,7 @@ int fillData(BufferedSocketReader *reader, std::string &raw, bool &error, DataTr
                 numRetries += 1;
             }
             if (offset > 10)
-                polltime = 10;
+                polltime = 30;
         } else {
             numRetries += 1;
         }
