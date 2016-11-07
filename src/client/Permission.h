@@ -128,7 +128,8 @@ public:
      * @param o other user permission.
      */
     Permission(const Action & u, const Action & g, const Action & o) :
-        userAction(u), groupAction(g), otherAction(o), stickyBit(false) {
+        userAction(u), groupAction(g), otherAction(o), stickyBit(false), hasAcl(false),
+         isEncrypted(false) {
     }
 
     /**
@@ -186,6 +187,14 @@ public:
         this->userAction = userAction;
     }
 
+    bool getAclBit() {
+        return hasAcl;
+    }
+
+    bool getEncryptedBit() {
+        return isEncrypted;
+    }
+
     /**
      * To convert a Permission to a readable string
      * @return a readable string
@@ -209,7 +218,9 @@ public:
         return userAction == other.userAction
                && groupAction == other.groupAction
                && otherAction == other.otherAction
-               && stickyBit == other.stickyBit;
+               && stickyBit == other.stickyBit
+               && isEncrypted == other.isEncrypted
+               && hasAcl == other.hasAcl;
     }
 
 private:
@@ -218,6 +229,8 @@ private:
     Action otherAction;
 
     bool stickyBit;
+    bool hasAcl;
+    bool isEncrypted;
 };
 
 }
