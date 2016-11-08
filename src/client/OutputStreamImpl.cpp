@@ -249,6 +249,8 @@ void OutputStreamImpl::openInternal(shared_ptr<FileSystemInter> fs, const char *
                 shared_ptr<GetDecryptedKey> getter = shared_ptr <GetDecryptedKey>(GetDecryptedKey::getDecryptor(conf->getKmsUrl(), auth));
                 std::string newkey = getter->getMaterial(info);
                 info.setKey(newkey);
+                aesClient = shared_ptr<AESClient>(new AESClient(newkey, info.getIv(),
+                  newkey, info.getIv(), conf->getCryptoBufferSize()));
             }
             initAppend();
             LeaseRenewer::GetLeaseRenewer().StartRenew(filesystem);
@@ -270,6 +272,8 @@ void OutputStreamImpl::openInternal(shared_ptr<FileSystemInter> fs, const char *
         shared_ptr<GetDecryptedKey> getter = shared_ptr <GetDecryptedKey>(GetDecryptedKey::getDecryptor(conf->getKmsUrl(), auth));
         std::string newkey = getter->getMaterial(info);
         info.setKey(newkey);
+        aesClient = shared_ptr<AESClient>(new AESClient(newkey, info.getIv(),
+              newkey, info.getIv(), conf->getCryptoBufferSize()));
     }
     closed = false;
     computePacketChunkSize();
@@ -287,7 +291,6 @@ void OutputStreamImpl::append(const char * buf, int64_t size) {
     if (NULL == buf || size < 0) {
         THROW(InvalidParameter, "Invalid parameter.");
     }
-
     checkStatus();
 
     try {
@@ -298,19 +301,22 @@ void OutputStreamImpl::append(const char * buf, int64_t size) {
     }
 }
 
-void OutputStreamImpl::doEncrypt(const char* buf, int64_t size)
+std::string OutputStreamImpl::doEncrypt(const char* buf, int64_t size)
 {
     if (size && fileStatus.getEncryption().getKey().length() > 0) {
-
+        std::string encoded = aesClient->encode(buf, size);
+        return encoded;
     }
-
+    return "";
 }
 
 void OutputStreamImpl::appendInternal(const char * buf, int64_t size) {
     int64_t todo = size;
 
-    doEncrypt(buf, size);
-
+    std::string encoded = doEncrypt(buf, size);
+    if (encoded.length()) {
+        buf = encoded.c_str();
+    }
     while (todo > 0) {
         int batch = buffer.size() - position;
         batch = batch < todo ? batch : static_cast<int>(todo);
