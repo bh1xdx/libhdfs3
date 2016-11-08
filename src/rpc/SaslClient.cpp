@@ -500,14 +500,24 @@ public:
     ptree fromJson() {
         ptree pt2;
         std::istringstream is (output);
-        read_json (is, pt2);
-        return pt2;
+        try {
+            read_json (is, pt2);
+            return pt2;
+        } catch (const boost::exception & e)
+        {
+            THROW(HdfsIOException, "Error parsing KMS data as JSON");
+        }
     }
     std::string toJson(ptree &data) {
         std::ostringstream buf;
-        write_json (buf, data, false);
-        std::string json = buf.str();
-        return json;
+        try {
+            write_json (buf, data, false);
+            std::string json = buf.str();
+            return json;
+        } catch (const boost::exception & e)
+        {
+            THROW(HdfsIOException, "Error converting KMS data to JSON");
+        }
     }
 private:
     std::string output;
@@ -633,12 +643,15 @@ public:
         std::string base = url + "/v1/keyversion/" + name + "/_eek@0?eek_op=decrypt";
 
         // simple auth
-        return url + "&user.name=" + auth.getUser().getRealUser();
+        std::string user = auth.getUser().getRealUser();
+        if (user.length() == 0)
+            user = auth.getUser().getKrbName();
+        return base + "&user.name=" + user;
     }
 
     std::string getMaterial(FileEncryption& encryption) {
         CURLcode res;
-        std:: string curl = build_url(encryption.getKeyName());
+        std:: string curl = build_url(encryption.getEzKeyVersionName());
         res = curl_easy_setopt(handle, CURLOPT_URL, curl.c_str());
         if (res != CURLE_OK) {
             THROW(HdfsIOException, "Cannot initialize url for KMS: %s: %s", curl_easy_strerror(res),
@@ -673,7 +686,13 @@ public:
         }
 
         map = output.fromJson();
-        data = map.get<std::string> ("material");
+
+        try {
+            data = map.get<std::string> ("material");
+        } catch (const boost::exception & e)
+        {
+            THROW(HdfsIOException, "Error converting KMS response to decrypted key");
+        }
 
         return Base64Decode(data);
     }

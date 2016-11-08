@@ -75,6 +75,10 @@ public:
         return krbUser.getPrincipal();
     }
 
+    std::string getKrbName() const {
+        return krbUser.getName();
+    }
+
     bool operator ==(const UserInfo & other) const {
         return realUser == other.realUser
                && krbUser == other.krbUser
