@@ -243,6 +243,13 @@ void OutputStreamImpl::openInternal(shared_ptr<FileSystemInter> fs, const char *
     try {
         if (flag & Append) {
             fileStatus = fs->getFileStatus(this->path.c_str());
+            FileEncryption &info = fileStatus.getEncryption();
+            if (info.getKey().length() > 0) {
+                RpcAuth auth = RpcAuth(fs->getUserInfo(), RpcAuth::ParseMethod(conf->getRpcAuthMethod()));
+                shared_ptr<GetDecryptedKey> getter = shared_ptr <GetDecryptedKey>(GetDecryptedKey::getDecryptor(conf->getKmsUrl(), auth));
+                std::string newkey = getter->getMaterial(info);
+                info.setKey(newkey);
+            }
             initAppend();
             LeaseRenewer::GetLeaseRenewer().StartRenew(filesystem);
             return;
@@ -257,6 +264,13 @@ void OutputStreamImpl::openInternal(shared_ptr<FileSystemInter> fs, const char *
     fs->create(this->path, permission, flag, createParent, this->replication,
                this->blockSize);
     fileStatus = fs->getFileStatus(this->path.c_str());
+    FileEncryption &info = fileStatus.getEncryption();
+    if (info.getKey().length() > 0) {
+        RpcAuth auth = RpcAuth(fs->getUserInfo(), RpcAuth::ParseMethod(conf->getRpcAuthMethod()));
+        shared_ptr<GetDecryptedKey> getter = shared_ptr <GetDecryptedKey>(GetDecryptedKey::getDecryptor(conf->getKmsUrl(), auth));
+        std::string newkey = getter->getMaterial(info);
+        info.setKey(newkey);
+    }
     closed = false;
     computePacketChunkSize();
     LeaseRenewer::GetLeaseRenewer().StartRenew(filesystem);

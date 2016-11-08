@@ -50,6 +50,7 @@ Dependencies:
     libuuid         http://sourceforge.net/projects/libuuid/
     boost 1.53+     http://www.boost.org/
                     [boost is not required if c++ compiler is g++ 4.6.0+ or clang++ with stdc++]
+    libcurl         https://curl.haxx.se/libcurl/
 
 Example:
     mkdir build

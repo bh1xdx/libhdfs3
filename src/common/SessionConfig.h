@@ -116,6 +116,10 @@ public:
         secureDatanode = val;
     }
 
+    const std::string& getKmsUrl() const {
+        return kmsUrl;
+    }
+
     int32_t getCryptoBufferSize() const {
         return cryptoBufferSize;
     }
@@ -354,6 +358,7 @@ public:
     bool encryptedDatanode;
     bool secureDatanode;
     int32_t cryptoBufferSize;
+    std::string kmsUrl;
 
     /*
      * InputStream configure

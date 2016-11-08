@@ -29,6 +29,7 @@ To build libhdfs3, the following libraries are needed.
     libuuid                         http://sourceforge.net/projects/libuuid/
     libgsasl                        http://www.gnu.org/software/gsasl/ (need https://github.com/bdrosen96/libgsasl)
     openssl                         https://www.openssl.org/
+    libcurl                         https://curl.haxx.se/libcurl/
 
 To run tests, the following libraries are needed.
 
