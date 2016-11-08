@@ -127,6 +127,8 @@ private:
     void sendPacket(shared_ptr<Packet> packet);
     void setupPipeline();
 
+    void doEncrypt(const char* buf, int64_t size);
+
 private:
     //atomic<bool> heartBeatStop;
     bool closed;
@@ -158,6 +160,7 @@ private:
     std::string path;
     std::vector<char> buffer;
     steady_clock::time_point lastSend;
+    FileStatus fileStatus;
     //thread heartBeatSender;
 
     friend class Pipeline;

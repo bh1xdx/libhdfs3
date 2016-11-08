@@ -207,7 +207,7 @@ int64_t InputStreamImpl::readBlockLength(const LocatedBlock & b) {
 }
 
 /**
- * Getting blocks locations'information from namenode
+ * Getting blocks locations' information from namenode
  */
 void InputStreamImpl::updateBlockInfos() {
     int retry = maxGetBlockInfoRetry;
@@ -381,7 +381,7 @@ void InputStreamImpl::setupBlockReader(bool temporaryDisableLocalRead) {
                 blockReader = shared_ptr<BlockReader>(new RemoteBlockReader(
                     filesystem,
                     *curBlock, curNode, *peerCache, offset, len,
-                    curBlock->getToken(), clientName, verify, *conf));
+                    curBlock->getToken(), clientName, verify, *conf, lbs->getEncryption()));
             }
 
             break;

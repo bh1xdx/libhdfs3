@@ -242,6 +242,7 @@ void OutputStreamImpl::openInternal(shared_ptr<FileSystemInter> fs, const char *
 
     try {
         if (flag & Append) {
+            fileStatus = fs->getFileStatus(this->path.c_str());
             initAppend();
             LeaseRenewer::GetLeaseRenewer().StartRenew(filesystem);
             return;
@@ -255,6 +256,7 @@ void OutputStreamImpl::openInternal(shared_ptr<FileSystemInter> fs, const char *
     assert((flag & Create) || (flag & Overwrite));
     fs->create(this->path, permission, flag, createParent, this->replication,
                this->blockSize);
+    fileStatus = fs->getFileStatus(this->path.c_str());
     closed = false;
     computePacketChunkSize();
     LeaseRenewer::GetLeaseRenewer().StartRenew(filesystem);
@@ -282,8 +284,18 @@ void OutputStreamImpl::append(const char * buf, int64_t size) {
     }
 }
 
+void OutputStreamImpl::doEncrypt(const char* buf, int64_t size)
+{
+    if (size && fileStatus.getEncryption().getKey().length() > 0) {
+
+    }
+
+}
+
 void OutputStreamImpl::appendInternal(const char * buf, int64_t size) {
     int64_t todo = size;
+
+    doEncrypt(buf, size);
 
     while (todo > 0) {
         int batch = buffer.size() - position;
@@ -362,7 +374,8 @@ void OutputStreamImpl::setupPipeline() {
 #else
     pipeline = shared_ptr<Pipeline>(new PipelineImpl(isAppend, path.c_str(), *conf, filesystem,
                                     CHECKSUM_TYPE_CRC32C, conf->getDefaultChunkSize(), replication,
-                                    currentPacket->getOffsetInBlock(), packets, lastBlock));
+                                    currentPacket->getOffsetInBlock(), packets, lastBlock,
+                                    fileStatus.getEncryption()));
 #endif
     lastSend = steady_clock::now();
     /*

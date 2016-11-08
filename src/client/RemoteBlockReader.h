@@ -52,7 +52,7 @@ public:
                       const ExtendedBlock& eb, DatanodeInfo& datanode,
                       PeerCache& peerCache, int64_t start, int64_t len,
                       const Token& token, const char* clientName, bool verify,
-                      SessionConfig& conf);
+                      SessionConfig& conf, FileEncryption& encryption);
 
     ~RemoteBlockReader();
 
@@ -88,6 +88,7 @@ private:
 
     void setupReader(SessionConfig& conf);
     void cleanupSocket();
+    void doDecrypt(int size);
 
 private:
     bool sentStatus;
@@ -113,6 +114,7 @@ private:
     shared_ptr<Socket> sock;
     std::vector<char> buffer;
     shared_ptr<FileSystemInter> filesystem;
+    FileEncryption& encryption;
 };
 
 }

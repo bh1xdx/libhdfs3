@@ -51,7 +51,7 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
                                      PeerCache& peerCache, int64_t start,
                                      int64_t len, const Token& token,
                                      const char* clientName, bool verify,
-                                     SessionConfig& conf)
+                                     SessionConfig& conf, FileEncryption& encryption)
     : sentStatus(false),
       verify(verify),
       binfo(eb),
@@ -64,7 +64,8 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
       endOffset(len + start),
       lastSeqNo(-1),
       peerCache(peerCache),
-      filesystem(filesystem) {
+      filesystem(filesystem),
+      encryption(encryption) {
 
     assert(start >= 0);
     readTimeout = conf.getInputReadTimeout();
@@ -288,6 +289,12 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
     }
 }
 
+void RemoteBlockReader::doDecrypt(int size) {
+    if (size && encryption.getKey().length() > 0) {
+
+    }
+}
+
 void RemoteBlockReader::readNextPacket() {
     assert(position >= size);
     lastHeader = readPacketHeader();
@@ -318,6 +325,7 @@ void RemoteBlockReader::readNextPacket() {
             memcpy(&buffer[0], &rest[0], size);
             reader->reduceRest(size);
         }
+        doDecrypt(size);
         lastSeqNo = lastHeader->getSeqno();
 
         if (lastHeader->getPacketLen() != static_cast<int>(sizeof(int32_t)) + dataSize + checksumLen) {
