@@ -276,6 +276,8 @@ std::string Base64Encode(const std::string & in) {
     int rc = gsasl_base64_to(in.c_str(), in.size(), &temp, &len);
 
     if (rc != GSASL_OK) {
+        if (rc == GSASL_BASE64_ERROR)
+            THROW(HdfsIOException, "SaslClient: Failed to encode string to base64");
         throw std::bad_alloc();
     }
 
@@ -298,11 +300,13 @@ std::string Base64Decode(const std::string & in) {
     int rc = gsasl_base64_from(in.c_str(), in.size(), &temp, &len);
 
     if (rc != GSASL_OK) {
+        if (rc == GSASL_BASE64_ERROR)
+            THROW(HdfsIOException, "SaslClient: Failed to decode string to base64");
         throw std::bad_alloc();
     }
 
     if (temp) {
-        retval = temp;
+        retval.assign(temp, len);
         free(temp);
     }
 
@@ -639,8 +643,20 @@ public:
       return realsize;
     }
 
+    std::string escape(std::string value) {
+        char *output = curl_easy_escape(handle, value.c_str(), value.length());
+        if(output) {
+            std::string ret = output;
+            curl_free(output);
+            return ret;
+        } else {
+            THROW(HdfsIOException, "Cannot convert URL to escaped version for KMS: %s", value.c_str());
+        }
+    }
     std::string build_url(std::string name) {
-        std::string base = url + "/v1/keyversion/" + name + "/_eek@0?eek_op=decrypt";
+
+        std::string base = url + "/v1/keyversion/" + escape(name);
+        base = base + "/_eek?eek_op=decrypt";
 
         // simple auth
         std::string user = auth.getUser().getRealUser();
@@ -669,7 +685,6 @@ public:
         map.put("material", Base64Encode(encryption.getKey()));
         std::string data = output.toJson(map);
 
-        //data = "{\n  \"iv\" : \"ETqALHnLqDOE5qL9SU04ng==\\r\\n\",\n  \"name\" : \"key1\",\n  \"material\" : \"i+PPkAfJkMC+klGJfNsBurY594Chb0M8SWiFZTkH9a0=\\r\\n\"\n}";
         res = curl_easy_setopt(handle, CURLOPT_COPYPOSTFIELDS, data.c_str());
         if (res != CURLE_OK) {
             THROW(HdfsIOException, "Cannot initialize post data for KMS: %s: %s", curl_easy_strerror(res),
@@ -684,6 +699,14 @@ public:
             THROW(HdfsIOException, "Cannot initialize post data for KMS: %s: %s", curl_easy_strerror(res),
             errorString().c_str());
         }
+        long response_code;
+        res = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &response_code);
+        if (res != CURLE_OK) {
+            THROW(HdfsIOException, "Cannot get response code for KMS: %s: %s", curl_easy_strerror(res),
+            errorString().c_str());
+        }
+        if (response_code != 200)
+            THROW(HdfsIOException, "Got invalid response from KMS: %d", (int)response_code);
 
         map = output.fromJson();
 
@@ -693,7 +716,16 @@ public:
         {
             THROW(HdfsIOException, "Error converting KMS response to decrypted key");
         }
-
+        int rem = data.length() % 4;
+        if (rem) {
+            rem = 4 - rem;
+            while (rem != 0 ) {
+                data = data + "=";
+                rem -= 1;
+            }
+        }
+        std::replace(data.begin(), data.end(), '-', '+');
+        std::replace(data.begin(), data.end(), '_', '/');
         return Base64Decode(data);
     }
 
