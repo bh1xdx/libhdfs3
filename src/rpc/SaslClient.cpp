@@ -689,6 +689,16 @@ public:
       return realsize;
     }
 
+    static size_t
+    CurlWriteHeaderCallback(char *contents, size_t size, size_t nmemb, void *userp)
+    {
+      size_t realsize = size * nmemb;
+      BodyOutput *mem = (BodyOutput*)userp;
+
+      mem->append(contents, realsize);
+      return realsize;
+    }
+
     std::string escape(std::string value) {
         char *output = curl_easy_escape(handle, value.c_str(), value.length());
         if(output) {
@@ -775,6 +785,17 @@ public:
             if (!list) {
                 THROW(HdfsIOException, "Cannot add header for KMS");
             }
+            res = curl_easy_setopt(handle, CURLOPT_HEADERFUNCTION, CurlWriteHeaderCallback);
+            if (res != CURLE_OK) {
+                THROW(HdfsIOException, "Cannot initialize header reader for KMS: %s: %s", curl_easy_strerror(res),
+                errorString().c_str());
+            }
+            res = curl_easy_setopt(handle, CURLOPT_HEADERDATA, (void *)&header);
+            if (res != CURLE_OK) {
+                THROW(HdfsIOException, "Cannot initialize header reader data for KMS: %s: %s", curl_easy_strerror(res),
+                errorString().c_str());
+            }
+
             res = curl_easy_setopt(handle, CURLOPT_HTTPHEADER, list);
             if (res != CURLE_OK) {
                 THROW(HdfsIOException, "Cannot initialize headers for KMS: %s: %s", curl_easy_strerror(res),
@@ -837,6 +858,7 @@ private:
     struct curl_slist *list;
     char errbuf[CURL_ERROR_SIZE];
     BodyOutput output;
+    BodyOutput header;
     std::string url;
     RpcAuth &auth;
     AuthMethod method;
