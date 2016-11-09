@@ -756,31 +756,31 @@ public:
         }
         if (method == AuthMethod::KERBEROS) {
             int rc;
-            char * output = NULL;
+            char * outputStr = NULL;
             size_t outputSize;
             std::string retval;
             std::string challenge = "";
-            rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
+            rc = gsasl_step(session, &challenge[0], challenge.size(), &outputStr,
                             &outputSize);
             if (rc == GSASL_GSSAPI_INIT_SEC_CONTEXT_ERROR && method == AuthMethod::KERBEROS) {
                 // Try again using principal instead
                 gsasl_finish(session);
                 initKerberos();
                 gsasl_property_set(session, GSASL_GSSAPI_DISPLAY_NAME, auth.getUser().getPrincipal().c_str());
-                rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
+                rc = gsasl_step(session, &challenge[0], challenge.size(), &outputStr,
                             &outputSize);
             }
             if (rc != GSASL_OK && rc != GSASL_NEEDS_MORE)
                 THROW(AccessControlException, "Failed to negotiate with KMS: %s", gsasl_strerror(rc));
 
             retval.resize(outputSize);
-            memcpy(&retval[0], output, outputSize);
+            memcpy(&retval[0], outputStr, outputSize);
 
-            if (output) {
-                free(output);
+            if (outputStr) {
+                free(outputStr);
             }
             char temp[1024];
-            sprintf(temp, "Negotiate: %s", Base64Encode(retval).c_str());
+            sprintf(temp, "Negotiate %s", Base64Encode(retval).c_str());
             list = curl_slist_append(list, temp);
             if (!list) {
                 THROW(HdfsIOException, "Cannot add header for KMS");
@@ -803,7 +803,17 @@ public:
             }
             res = curl_easy_perform(handle);
 
-
+            long response_code;
+            res = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &response_code);
+            if (res != CURLE_OK) {
+                THROW(HdfsIOException, "Cannot get response code for KMS: %s: %s", curl_easy_strerror(res),
+                errorString().c_str());
+            }
+            if (response_code != 200) {
+                output.reset();
+                header.reset();
+                res = curl_easy_perform(handle);
+            }
         } else if (method == AuthMethod::SIMPLE) {
             // Once to get cookie for simple auth.
             res = curl_easy_perform(handle);
