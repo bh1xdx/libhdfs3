@@ -550,7 +550,7 @@ std::string parse_url(std::string data) {
 class GetDecryptedKeyImpl : public GetDecryptedKey {
 public:
     GetDecryptedKeyImpl(std::string url, RpcAuth & auth): handle(NULL), list(NULL), url(parse_url(url)),
-     auth(auth) {
+     auth(auth), ctx(NULL), session(NULL) {
         if (!initialized) {
             initialized = true;
             CURLcode ret = curl_global_init(CURL_GLOBAL_ALL);
@@ -619,6 +619,39 @@ public:
             THROW(HdfsIOException, "Cannot initialize user agent for KMS: %s: %s", curl_easy_strerror(res),
             errorString().c_str());
         }
+        method = auth.getMethod();
+        if (method == AuthMethod::KERBEROS) {
+
+            int rc = gsasl_init(&ctx);
+
+            if (rc != GSASL_OK) {
+                THROW(HdfsIOException, "cannot initialize libgsasl");
+            }
+            /* Create new authentication session. */
+            if ((rc = gsasl_client_start(ctx, "gss", &session)) != GSASL_OK) {
+                THROW(HdfsIOException, "Cannot initialize client (%d): %s", rc,
+                      gsasl_strerror(rc));
+            }
+            std::string principal = auth.getUser().getPrincipal();
+            gsasl_property_set(session, GSASL_AUTHID, principal.c_str());
+
+            gsasl_property_set(session, GSASL_SERVICE, "HTTP");
+
+            std::string http = "http://";
+            std::string https = "https://";
+            std::string host = "";
+
+            if (url.compare(0, http.length(), http) == 0)
+                host = url.substr(http.length());
+            else
+                host = url.substr(https.length());
+            size_t pos = host.find("/");
+            if (pos != host.npos) {
+                host = host.substr(0, pos);
+            }
+            gsasl_property_set(session, GSASL_HOSTNAME, host.c_str());
+
+        }
     }
 
     ~GetDecryptedKeyImpl() {
@@ -626,6 +659,17 @@ public:
             curl_slist_free_all(list);
         if (handle)
             curl_easy_cleanup(handle);
+
+        if (session != NULL) {
+            gsasl_finish(session);
+            session = NULL;
+        }
+
+        if (ctx != NULL) {
+            gsasl_done(ctx);
+            ctx = NULL;
+        }
+
     }
     std::string errorString() {
         if (strlen(errbuf) == 0)
@@ -658,11 +702,19 @@ public:
         std::string base = url + "/v1/keyversion/" + escape(name);
         base = base + "/_eek?eek_op=decrypt";
 
-        // simple auth
-        std::string user = auth.getUser().getRealUser();
-        if (user.length() == 0)
-            user = auth.getUser().getKrbName();
-        return base + "&user.name=" + user;
+        if (method == AuthMethod::KERBEROS) {
+            return base;
+        } else if (method == AuthMethod::SIMPLE) {
+            std::string user = auth.getUser().getRealUser();
+            if (user.length() == 0)
+                user = auth.getUser().getKrbName();
+            return base + "&user.name=" + user;
+
+        }
+        else {
+            return base;
+        }
+
     }
 
     std::string getMaterial(FileEncryption& encryption) {
@@ -690,14 +742,50 @@ public:
             THROW(HdfsIOException, "Cannot initialize post data for KMS: %s: %s", curl_easy_strerror(res),
             errorString().c_str());
         }
+        if (method == AuthMethod::KERBEROS) {
+            int rc;
+            char * output = NULL;
+            size_t outputSize;
+            std::string retval;
+            std::string challenge = "";
+            rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
+                            &outputSize);
+            retval.resize(outputSize);
+            memcpy(&retval[0], output, outputSize);
 
-        // Once to get cookie for simple auth.
-        res = curl_easy_perform(handle);
-        output.reset();
-        res = curl_easy_perform(handle);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize post data for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
+            if (output) {
+                free(output);
+            }
+            char temp[1024];
+            sprintf(temp, "Negotiate: %s", Base64Encode(retval).c_str());
+            list = curl_slist_append(list, temp);
+            if (!list) {
+                THROW(HdfsIOException, "Cannot add header for KMS");
+            }
+            res = curl_easy_setopt(handle, CURLOPT_HTTPHEADER, list);
+            if (res != CURLE_OK) {
+                THROW(HdfsIOException, "Cannot initialize headers for KMS: %s: %s", curl_easy_strerror(res),
+                errorString().c_str());
+            }
+
+
+        } else if (method == AuthMethod::SIMPLE) {
+            // Once to get cookie for simple auth.
+            res = curl_easy_perform(handle);
+            output.reset();
+            res = curl_easy_perform(handle);
+            if (res != CURLE_OK) {
+                THROW(HdfsIOException, "Cannot initialize post data for KMS: %s: %s", curl_easy_strerror(res),
+                errorString().c_str());
+            }
+        } else {
+            res = curl_easy_perform(handle);
+            output.reset();
+            res = curl_easy_perform(handle);
+            if (res != CURLE_OK) {
+                THROW(HdfsIOException, "Cannot initialize post data for KMS: %s: %s", curl_easy_strerror(res),
+                errorString().c_str());
+            }
         }
         long response_code;
         res = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &response_code);
@@ -737,6 +825,9 @@ private:
     BodyOutput output;
     std::string url;
     RpcAuth &auth;
+    AuthMethod method;
+    Gsasl * ctx;
+    Gsasl_session * session;
 
 };
 

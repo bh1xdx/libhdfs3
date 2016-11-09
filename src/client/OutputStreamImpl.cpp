@@ -245,7 +245,7 @@ void OutputStreamImpl::openInternal(shared_ptr<FileSystemInter> fs, const char *
             fileStatus = fs->getFileStatus(this->path.c_str());
             FileEncryption &info = fileStatus.getEncryption();
             if (info.getKey().length() > 0) {
-                RpcAuth auth = RpcAuth(fs->getUserInfo(), RpcAuth::ParseMethod(conf->getRpcAuthMethod()));
+                RpcAuth auth = RpcAuth(fs->getUserInfo(), RpcAuth::ParseMethod(conf->getKmsMethod()));
                 shared_ptr<GetDecryptedKey> getter = shared_ptr <GetDecryptedKey>(GetDecryptedKey::getDecryptor(conf->getKmsUrl(), auth));
                 std::string newkey = getter->getMaterial(info);
                 info.setKey(newkey);
@@ -268,7 +268,7 @@ void OutputStreamImpl::openInternal(shared_ptr<FileSystemInter> fs, const char *
     fileStatus = fs->getFileStatus(this->path.c_str());
     FileEncryption &info = fileStatus.getEncryption();
     if (info.getKey().length() > 0) {
-        RpcAuth auth = RpcAuth(fs->getUserInfo(), RpcAuth::ParseMethod(conf->getRpcAuthMethod()));
+        RpcAuth auth = RpcAuth(fs->getUserInfo(), RpcAuth::ParseMethod(conf->getKmsMethod()));
         shared_ptr<GetDecryptedKey> getter = shared_ptr <GetDecryptedKey>(GetDecryptedKey::getDecryptor(conf->getKmsUrl(), auth));
         std::string newkey = getter->getMaterial(info);
         info.setKey(newkey);
