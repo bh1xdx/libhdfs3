@@ -51,7 +51,8 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
                                      PeerCache& peerCache, int64_t start,
                                      int64_t len, const Token& token,
                                      const char* clientName, bool verify,
-                                     SessionConfig& conf, FileEncryption& encryption)
+                                     SessionConfig& conf, FileEncryption& encryption,
+                                     shared_ptr<AESClient> aesClient)
     : sentStatus(false),
       verify(verify),
       binfo(eb),
@@ -65,7 +66,8 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
       lastSeqNo(-1),
       peerCache(peerCache),
       filesystem(filesystem),
-      encryption(encryption) {
+      encryption(encryption),
+      aesClient(aesClient) {
 
     assert(start >= 0);
     readTimeout = conf.getInputReadTimeout();
@@ -289,10 +291,12 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
     }
 }
 
-void RemoteBlockReader::doDecrypt(int size) {
+std::string RemoteBlockReader::doDecrypt(const char* data, int size) {
     if (size && encryption.getKey().length() > 0) {
-
+        std::string encoded = aesClient->decode(data, size);
+        return encoded;
     }
+    return "";
 }
 
 void RemoteBlockReader::readNextPacket() {
@@ -325,7 +329,7 @@ void RemoteBlockReader::readNextPacket() {
             memcpy(&buffer[0], &rest[0], size);
             reader->reduceRest(size);
         }
-        doDecrypt(size);
+
         lastSeqNo = lastHeader->getSeqno();
 
         if (lastHeader->getPacketLen() != static_cast<int>(sizeof(int32_t)) + dataSize + checksumLen) {
@@ -337,6 +341,12 @@ void RemoteBlockReader::readNextPacket() {
             verifyChecksum(chunks);
         }
 
+        // decrypt after checksum
+        char *data = (&buffer[0]) + checksumLen;
+        std::string decoded = doDecrypt(data, dataSize);
+        if (decoded.length()) {
+            memcpy(data, decoded.c_str(), dataSize);
+        }
         /*
          * skip checksum
          */

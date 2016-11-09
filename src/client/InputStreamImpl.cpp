@@ -212,14 +212,27 @@ int64_t InputStreamImpl::readBlockLength(const LocatedBlock & b) {
 void InputStreamImpl::updateBlockInfos() {
     int retry = maxGetBlockInfoRetry;
 
+    bool initedLbs = false;
     for (int i = 0; i < retry; ++i) {
         try {
             if (!lbs) {
                 lbs = shared_ptr < LocatedBlocksImpl > (new LocatedBlocksImpl);
+                initedLbs = true;
             }
 
             filesystem->getBlockLocations(path, cursor, prefetchSize, *lbs);
-
+            if (initedLbs) {
+                  if (!aesClient && lbs->getEncryption().getKey().length() > 0) {
+                    FileEncryption& encryption = lbs->getEncryption();
+                    RpcAuth auth = RpcAuth(filesystem->getUserInfo(),
+                        RpcAuth::ParseMethod(conf->getRpcAuthMethod()));
+                    shared_ptr<GetDecryptedKey> getter = shared_ptr <GetDecryptedKey>(GetDecryptedKey::getDecryptor(conf->getKmsUrl(), auth));
+                    std::string newkey = getter->getMaterial(encryption);
+                    encryption.setKey(newkey);
+                    aesClient = shared_ptr<AESClient>(new AESClient(newkey, encryption.getIv(),
+                          newkey, encryption.getIv(), conf->getCryptoBufferSize()));
+                }
+            }
             if (lbs->isLastBlockComplete()) {
                 lastBlockBeingWrittenLength = 0;
             } else {
@@ -381,7 +394,8 @@ void InputStreamImpl::setupBlockReader(bool temporaryDisableLocalRead) {
                 blockReader = shared_ptr<BlockReader>(new RemoteBlockReader(
                     filesystem,
                     *curBlock, curNode, *peerCache, offset, len,
-                    curBlock->getToken(), clientName, verify, *conf, lbs->getEncryption()));
+                    curBlock->getToken(), clientName, verify, *conf, lbs->getEncryption(),
+                    aesClient));
             }
 
             break;
