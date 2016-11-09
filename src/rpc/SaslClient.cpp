@@ -621,38 +621,40 @@ public:
         }
         method = auth.getMethod();
         if (method == AuthMethod::KERBEROS) {
-
-            int rc = gsasl_init(&ctx);
-
-            if (rc != GSASL_OK) {
-                THROW(HdfsIOException, "cannot initialize libgsasl");
-            }
-            /* Create new authentication session. */
-            if ((rc = gsasl_client_start(ctx, "gss", &session)) != GSASL_OK) {
-                THROW(HdfsIOException, "Cannot initialize client (%d): %s", rc,
-                      gsasl_strerror(rc));
-            }
-            std::string principal = auth.getUser().getPrincipal();
-            gsasl_property_set(session, GSASL_AUTHID, principal.c_str());
-
-            gsasl_property_set(session, GSASL_SERVICE, "HTTP");
-
-            std::string http = "http://";
-            std::string https = "https://";
-            std::string host = "";
-
-            if (url.compare(0, http.length(), http) == 0)
-                host = url.substr(http.length());
-            else
-                host = url.substr(https.length());
-            size_t pos = host.find("/");
-            if (pos != host.npos) {
-                host = host.substr(0, pos);
-            }
-            gsasl_property_set(session, GSASL_HOSTNAME, host.c_str());
-
+            initKerberos();
         }
     }
+
+    void initKerberos() {
+        int rc = gsasl_init(&ctx);
+
+        if (rc != GSASL_OK) {
+            THROW(HdfsIOException, "cannot initialize libgsasl");
+        }
+        /* Create new authentication session. */
+        if ((rc = gsasl_client_start(ctx, "GSSAPI", &session)) != GSASL_OK) {
+            THROW(HdfsIOException, "Cannot initialize client (%d): %s", rc,
+                  gsasl_strerror(rc));
+        }
+        std::string principal = auth.getUser().getPrincipal();
+        gsasl_property_set(session, GSASL_AUTHID, principal.c_str());
+
+        gsasl_property_set(session, GSASL_SERVICE, "HTTP");
+
+        std::string http = "http://";
+        std::string https = "https://";
+        std::string host = "";
+
+        if (url.compare(0, http.length(), http) == 0)
+            host = url.substr(http.length());
+        else
+            host = url.substr(https.length());
+        size_t pos = host.find("/");
+        if (pos != host.npos) {
+            host = host.substr(0, pos);
+        }
+        gsasl_property_set(session, GSASL_HOSTNAME, host.c_str());
+}
 
     ~GetDecryptedKeyImpl() {
         if (list)
@@ -750,6 +752,17 @@ public:
             std::string challenge = "";
             rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
                             &outputSize);
+            if (rc == GSASL_GSSAPI_INIT_SEC_CONTEXT_ERROR && method == AuthMethod::KERBEROS) {
+                // Try again using principal instead
+                gsasl_finish(session);
+                initKerberos();
+                gsasl_property_set(session, GSASL_GSSAPI_DISPLAY_NAME, auth.getUser().getPrincipal().c_str());
+                rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
+                            &outputSize);
+            }
+            if (rc != GSASL_OK)
+                THROW(AccessControlException, "Failed to negotiate with KMS: %s", gsasl_strerror(rc));
+
             retval.resize(outputSize);
             memcpy(&retval[0], output, outputSize);
 
@@ -767,6 +780,7 @@ public:
                 THROW(HdfsIOException, "Cannot initialize headers for KMS: %s: %s", curl_easy_strerror(res),
                 errorString().c_str());
             }
+            res = curl_easy_perform(handle);
 
 
         } else if (method == AuthMethod::SIMPLE) {
