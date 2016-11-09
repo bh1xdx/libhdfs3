@@ -647,7 +647,7 @@ public:
             host = url.substr(http.length());
         else
             host = url.substr(https.length());
-        size_t pos = host.find("/");
+        size_t pos = host.find(":");
         if (pos != host.npos) {
             host = host.substr(0, pos);
         }
