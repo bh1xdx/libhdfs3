@@ -767,7 +767,7 @@ public:
                 // Try again using principal instead
                 gsasl_finish(session);
                 initKerberos();
-                gsasl_property_set(session, GSASL_GSSAPI_DISPLAY_NAME, spn.c_str());
+                gsasl_property_set(session, GSASL_GSSAPI_DISPLAY_NAME, auth.getUser().getPrincipal().c_str());
                 rc = gsasl_step(session, &challenge[0], challenge.size(), &outputStr,
                             &outputSize);
             }
