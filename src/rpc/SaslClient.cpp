@@ -653,7 +653,7 @@ public:
         }
         gsasl_property_set(session, GSASL_HOSTNAME, host.c_str());
 
-        spn = "HTTP@" + host;
+        spn = "HTTP";
         gsasl_property_set(session, GSASL_SERVICE, spn.c_str());
 }
 
