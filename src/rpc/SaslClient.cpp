@@ -816,7 +816,7 @@ public:
             if (response_code != 200) {
                 output.reset();
                 header.reset();
-                res = curl_easy_perform(handle);
+                THROW(HdfsIOException, "Could not authentiate to KMS using SASL");
             }
         } else if (method == AuthMethod::SIMPLE) {
             // Once to get cookie for simple auth.
