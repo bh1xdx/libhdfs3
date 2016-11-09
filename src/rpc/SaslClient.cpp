@@ -780,7 +780,7 @@ public:
                 free(outputStr);
             }
             char temp[1024];
-            sprintf(temp, "Negotiate %s", Base64Encode(retval).c_str());
+            sprintf(temp, "Authorization: Negotiate %s", Base64Encode(retval).c_str());
             list = curl_slist_append(list, temp);
             if (!list) {
                 THROW(HdfsIOException, "Cannot add header for KMS");
