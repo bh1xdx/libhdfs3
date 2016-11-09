@@ -780,7 +780,10 @@ public:
                 free(outputStr);
             }
             char temp[1024];
-            sprintf(temp, "Authorization: Negotiate %s", Base64Encode(retval).c_str());
+            std::string encoded = Base64Encode(retval);
+            std::replace(encoded.begin(), encoded.end(), '+', '-');
+            std::replace(encoded.begin(), encoded.end(), '/', '_');
+            sprintf(temp, "Authorization: Negotiate %s", encoded.c_str());
             list = curl_slist_append(list, temp);
             if (!list) {
                 THROW(HdfsIOException, "Cannot add header for KMS");
