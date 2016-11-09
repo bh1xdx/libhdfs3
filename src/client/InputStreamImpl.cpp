@@ -225,7 +225,7 @@ void InputStreamImpl::updateBlockInfos() {
                   if (!aesClient && lbs->getEncryption().getKey().length() > 0) {
                     FileEncryption& encryption = lbs->getEncryption();
                     RpcAuth auth = RpcAuth(filesystem->getUserInfo(),
-                        RpcAuth::ParseMethod(conf->getRpcAuthMethod()));
+                        RpcAuth::ParseMethod(conf->getKmsMethod()));
                     shared_ptr<GetDecryptedKey> getter = shared_ptr <GetDecryptedKey>(GetDecryptedKey::getDecryptor(conf->getKmsUrl(), auth));
                     std::string newkey = getter->getMaterial(encryption);
                     encryption.setKey(newkey);
