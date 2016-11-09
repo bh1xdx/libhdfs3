@@ -639,8 +639,6 @@ public:
         std::string principal = auth.getUser().getPrincipal();
         gsasl_property_set(session, GSASL_AUTHID, principal.c_str());
 
-        gsasl_property_set(session, GSASL_SERVICE, "HTTP");
-
         std::string http = "http://";
         std::string https = "https://";
         std::string host = "";
@@ -654,6 +652,9 @@ public:
             host = host.substr(0, pos);
         }
         gsasl_property_set(session, GSASL_HOSTNAME, host.c_str());
+
+        std:: string spn = "HTTP@" + host;
+        gsasl_property_set(session, GSASL_SERVICE, spn.c_str());
 }
 
     ~GetDecryptedKeyImpl() {
