@@ -760,7 +760,7 @@ public:
                 rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
                             &outputSize);
             }
-            if (rc != GSASL_OK)
+            if (rc != GSASL_OK && rc != GSASL_NEEDS_MORE)
                 THROW(AccessControlException, "Failed to negotiate with KMS: %s", gsasl_strerror(rc));
 
             retval.resize(outputSize);
