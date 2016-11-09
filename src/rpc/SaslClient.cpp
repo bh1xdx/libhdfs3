@@ -653,7 +653,7 @@ public:
         }
         gsasl_property_set(session, GSASL_HOSTNAME, host.c_str());
 
-        std:: string spn = "HTTP@" + host;
+        spn = "HTTP@" + host;
         gsasl_property_set(session, GSASL_SERVICE, spn.c_str());
 }
 
@@ -767,7 +767,7 @@ public:
                 // Try again using principal instead
                 gsasl_finish(session);
                 initKerberos();
-                gsasl_property_set(session, GSASL_GSSAPI_DISPLAY_NAME, auth.getUser().getPrincipal().c_str());
+                gsasl_property_set(session, GSASL_GSSAPI_DISPLAY_NAME, spn.c_str());
                 rc = gsasl_step(session, &challenge[0], challenge.size(), &outputStr,
                             &outputSize);
             }
@@ -878,6 +878,7 @@ private:
     AuthMethod method;
     Gsasl * ctx;
     Gsasl_session * session;
+    std::string spn;
 
 };
 
