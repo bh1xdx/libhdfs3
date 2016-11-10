@@ -258,6 +258,15 @@ public:
 	 FileNotFoundException, UnresolvedLinkException, HdfsIOException */ = 0;
 
     /**
+     * Get a valid KMS Token.
+     *
+     * @return Token<KmsTokenIdentifier>
+     * @throws IOException
+     */
+    virtual std::string getKmsToken() = 0;
+
+
+    /**
      * Get a valid Delegation Token.
      *
      * @param renewer the designated renewer for the token

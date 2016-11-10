@@ -565,6 +565,14 @@ bool FileSystem::truncate(const char * src, int64_t size) {
     return impl->filesystem->truncate(src, size);
 }
 
+std::string FileSystem::getKmsToken() {
+    if (!impl) {
+        THROW(HdfsIOException, "FileSystem: not connected.");
+    }
+
+    return impl->filesystem->getKmsToken();
+}
+
 std::string FileSystem::getDelegationToken(const char * renewer) {
     if (!impl) {
         THROW(HdfsIOException, "FileSystem: not connected.");

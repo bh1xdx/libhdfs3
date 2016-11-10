@@ -251,6 +251,16 @@ public:
     bool truncate(const char * path, int64_t size);
 
     /**
+     * Get a valid KMS Token.
+     *
+     * @return Token
+     * @throws IOException
+     */
+    std::string getKmsToken();
+
+
+
+    /**
      * Get a valid Delegation Token.
      *
      * @param renewer the designated renewer for the token

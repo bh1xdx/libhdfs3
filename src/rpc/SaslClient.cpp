@@ -548,7 +548,25 @@ public:
                 value =  value.substr(0, (last+1));
 
             headers[key] = value;
+
+            if (key == "Set-Cookie") {
+                std::string auth_cookie = "hadoop.auth";
+                std::string auth_cookie_eq = auth_cookie + "=";
+                int pos = value.find(auth_cookie_eq);
+                if (pos != (int)value.npos) {
+                    std::string token = value.substr(pos+auth_cookie_eq.length());
+                    int separator = token.find(";");
+                    if (separator != (int)token.npos) {
+                        token = token.substr(0, separator);
+                    }
+                    kmsToken = token;
+                }
+            }
         }
+    }
+
+    std::string& getKmsToken() {
+        return kmsToken;
     }
 
     std::string& getValue(const char* key) {
@@ -570,6 +588,7 @@ public:
 
 private:
     std::map<std::string, std::string> headers;
+    std::string kmsToken;
 };
 
 std::string parse_url(std::string data) {
@@ -612,11 +631,14 @@ std::string parse_url(std::string data) {
     }
 
 
-#define CURL_GET_RESPONSE(handle, code, fmt) \
-    res = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, code); \
+#define CURL_GETOPT_ERROR2(handle, option, optarg, fmt) \
+    res = curl_easy_getinfo(handle, option, optarg); \
     if (res != CURLE_OK) { \
         THROW(HdfsIOException, fmt, curl_easy_strerror(res), errorString().c_str()); \
     }
+
+#define CURL_GET_RESPONSE(handle, code, fmt) \
+    CURL_GETOPT_ERROR2(handle, CURLINFO_RESPONSE_CODE, code, fmt);
 
 class GetDecryptedKeyImpl : public GetDecryptedKey {
 public:
@@ -847,7 +869,8 @@ public:
 
             CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
 
-            token = header.getValue("Set-Cookie");
+            token = header.getKmsToken();
+
             if (tokenOnly)
                 return token;
 
@@ -863,6 +886,22 @@ public:
                 CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
             }
         } else {
+
+            const Token *ptr = auth.getUser().selectToken("kms-dt", "kms");
+            if (!ptr)
+                THROW(HdfsIOException, "Can't find provided KMS token");
+            std::string auth_cookie = "hadoop.auth";
+            std::string auth_cookie_eq = auth_cookie + "=";
+            std::string kmsToken = ptr->getIdentifier();
+
+            if (kmsToken.length() == 0)
+                 THROW(HdfsIOException, "KMS Token not set");
+
+            if (kmsToken[0] != '"') {
+                kmsToken = "\"" + kmsToken + "\"";
+            }
+            std::string temp = "Cookie: " + auth_cookie_eq + kmsToken;
+            addHeader(temp.c_str());
             CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
 
             CURL_GET_RESPONSE(handle, &response_code,

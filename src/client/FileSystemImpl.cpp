@@ -595,6 +595,20 @@ bool FileSystemImpl::truncate(const char * path, int64_t size) {
     return nn->truncate(absPath, size, clientName);
 }
 
+std::string FileSystemImpl::getKmsToken() {
+    if (sconf.getKmsUrl().length() == 0) {
+        THROW(HdfsIOException, "KMS provider not configured");
+    }
+    AuthMethod method = RpcAuth::ParseMethod(sconf.getKmsMethod());
+    if (method != AuthMethod::KERBEROS) {
+        THROW(HdfsIOException, "KMS authentication type is not kerberos");
+    }
+    FileEncryption info;
+    RpcAuth auth = RpcAuth(getUserInfo(), method);
+    shared_ptr<GetDecryptedKey> getter = shared_ptr <GetDecryptedKey>(GetDecryptedKey::getDecryptor(sconf.getKmsUrl(), auth));
+    return getter->getMaterial(info, true);
+}
+
 std::string FileSystemImpl::getDelegationToken(const char * renewer) {
     if (!nn) {
         THROW(HdfsIOException, "FileSystemImpl: not connected.");
