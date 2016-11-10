@@ -527,6 +527,51 @@ private:
     std::string output;
 };
 
+class HeaderOutput {
+public:
+    void append(char *data, size_t size) {
+        char *ptr = (char*) memchr(data, ':', size);
+        if (ptr) {
+            int idx = ptr-data;
+            std::string key;
+            key.assign(data, idx);
+            std::string value;
+            int offset = 1;
+            if (*(ptr+1) == ' ')
+                offset += 1;
+            value.assign(ptr+offset, size-idx-offset);
+
+            size_t last = value.find_last_not_of("\r\n");
+            if (last == value.npos)
+                value = "";
+            else
+                value =  value.substr(0, (last+1));
+
+            headers[key] = value;
+        }
+    }
+
+    std::string& getValue(const char* key) {
+         try {
+            return headers.at(key);
+         } catch (std::out_of_range & oor) {
+            THROW(HdfsIOException, "Cannot find key in HTTP headers for KMS: %s", key);
+         }
+    }
+
+    void print() {
+        for (std::map<std::string, std::string>::iterator it=headers.begin(); it!=headers.end(); ++it)
+            std::cout << it->first << " => " << it->second << '\n';
+    }
+
+    void reset() {
+        headers.clear();
+    }
+
+private:
+    std::map<std::string, std::string> headers;
+};
+
 std::string parse_url(std::string data) {
     std::string start = "kms://";
     std::string http = "http@";
@@ -547,6 +592,32 @@ std::string parse_url(std::string data) {
 
 }
 
+#define CURL_SETOPT(handle, option, optarg, fmt, ...) \
+    res = curl_easy_setopt(handle, option, optarg); \
+    if (res != CURLE_OK) { \
+        THROW(HdfsIOException, fmt, ##__VA_ARGS__); \
+    }
+
+#define CURL_SETOPT_ERROR1(handle, option, optarg, fmt) \
+    CURL_SETOPT(handle, option, optarg, fmt, curl_easy_strerror(res));
+
+#define CURL_SETOPT_ERROR2(handle, option, optarg, fmt) \
+    CURL_SETOPT(handle, option, optarg, fmt, curl_easy_strerror(res), \
+        errorString().c_str())
+
+#define CURL_PERFORM(handle, fmt) \
+    res = curl_easy_perform(handle); \
+    if (res != CURLE_OK) { \
+        THROW(HdfsIOException, fmt, curl_easy_strerror(res), errorString().c_str()); \
+    }
+
+
+#define CURL_GET_RESPONSE(handle, code, fmt) \
+    res = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, code); \
+    if (res != CURLE_OK) { \
+        THROW(HdfsIOException, fmt, curl_easy_strerror(res), errorString().c_str()); \
+    }
+
 class GetDecryptedKeyImpl : public GetDecryptedKey {
 public:
     GetDecryptedKeyImpl(std::string url, RpcAuth & auth): handle(NULL), list(NULL), url(parse_url(url)),
@@ -563,65 +634,49 @@ public:
             THROW(HdfsIOException, "Cannot initialize curl handle for KMS");
 
         CURLcode res;
-        res = curl_easy_setopt(handle, CURLOPT_ERRORBUFFER, errbuf);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize curl error buffer for KMS: %s", curl_easy_strerror(res));
-        }
-        errbuf[0] = 0;
-        res = curl_easy_setopt(handle, CURLOPT_SSL_VERIFYPEER, 0);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize SSL no verify for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
-        res = curl_easy_setopt(handle, CURLOPT_NOPROGRESS, 1);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize no progress for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
-        res = curl_easy_setopt(handle, CURLOPT_VERBOSE, 0);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize no verbose for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
-        res = curl_easy_setopt(handle, CURLOPT_COOKIEFILE, "");
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize cookie behavior for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
-        list = curl_slist_append(list, "Content-Type: application/json");
-        if (!list) {
-            THROW(HdfsIOException, "Cannot add header for KMS");
-        }
-        list = curl_slist_append(list, "Accept: *");
-        if (!list) {
-            THROW(HdfsIOException, "Cannot add header for KMS");
-        }
-        res = curl_easy_setopt(handle, CURLOPT_HTTPHEADER, list);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize headers for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
+        CURL_SETOPT_ERROR1(handle, CURLOPT_ERRORBUFFER, errbuf,
+            "Cannot initialize curl error buffer for KMS: %s");
 
-        res = curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, CurlWriteMemoryCallback);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize body reader for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
-        res = curl_easy_setopt(handle, CURLOPT_WRITEDATA, (void *)&output);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize body reader data for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
+        errbuf[0] = 0;
+        CURL_SETOPT_ERROR2(handle, CURLOPT_SSL_VERIFYPEER, 0,
+            "Cannot initialize SSL no verify for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_NOPROGRESS, 1,
+            "Cannot initialize no progress for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_VERBOSE, 0,
+            "Cannot initialize no verbose for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_COOKIEFILE, "",
+            "Cannot initialize cookie behavior for KMS: %s: %s");
+
+        addHeader("Content-Type: application/json");
+        addHeader("Accept: *");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_HTTPHEADER, list,
+            "Cannot initialize headers for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_WRITEFUNCTION, CurlWriteMemoryCallback,
+            "Cannot initialize body reader for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_WRITEDATA, (void *)&output,
+            "Cannot initialize body reader data for KMS: %s: %s");
+
         /* some servers don't like requests that are made without a user-agent
             field, so we provide one */
-        res = curl_easy_setopt(handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize user agent for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
+        CURL_SETOPT_ERROR2(handle, CURLOPT_USERAGENT, "libcurl-agent/1.0",
+            "Cannot initialize user agent for KMS: %s: %s");
+
         method = auth.getMethod();
         if (method == AuthMethod::KERBEROS) {
             initKerberos();
+        }
+    }
+
+    void addHeader(const char* headervalue) {
+        list = curl_slist_append(list, headervalue);
+        if (!list) {
+            THROW(HdfsIOException, "Cannot add header for KMS");
         }
     }
 
@@ -694,7 +749,7 @@ public:
     CurlWriteHeaderCallback(char *contents, size_t size, size_t nmemb, void *userp)
     {
       size_t realsize = size * nmemb;
-      BodyOutput *mem = (BodyOutput*)userp;
+      HeaderOutput *mem = (HeaderOutput*)userp;
 
       mem->append(contents, realsize);
       return realsize;
@@ -730,31 +785,25 @@ public:
 
     }
 
-    std::string getMaterial(FileEncryption& encryption) {
+    std::string getMaterial(FileEncryption& encryption,  bool tokenOnly = false) {
         CURLcode res;
         std:: string curl = build_url(encryption.getEzKeyVersionName());
-        res = curl_easy_setopt(handle, CURLOPT_URL, curl.c_str());
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize url for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
-        res = curl_easy_setopt(handle, CURLOPT_POST, 1);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize post for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
+        CURL_SETOPT_ERROR2(handle, CURLOPT_URL, curl.c_str(),
+            "Cannot initialize url for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_POST, 1,
+            "Cannot initialize post for KMS: %s: %s");
 
         ptree map;
+        long response_code;
         map.put("iv", Base64Encode(encryption.getIv()));
         map.put("name", encryption.getKeyName());
         map.put("material", Base64Encode(encryption.getKey()));
         std::string data = output.toJson(map);
 
-        res = curl_easy_setopt(handle, CURLOPT_COPYPOSTFIELDS, data.c_str());
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot initialize post data for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
+        CURL_SETOPT_ERROR2(handle, CURLOPT_COPYPOSTFIELDS, data.c_str(),
+            "Cannot initialize post data for KMS: %s: %s");
+
         if (method == AuthMethod::KERBEROS) {
             int rc;
             char * outputStr = NULL;
@@ -785,63 +834,48 @@ public:
             std::replace(encoded.begin(), encoded.end(), '+', '-');
             std::replace(encoded.begin(), encoded.end(), '/', '_');
             temp = "Authorization: Negotiate " + encoded;
-            list = curl_slist_append(list, temp.c_str());
-            if (!list) {
-                THROW(HdfsIOException, "Cannot add header for KMS");
-            }
-            res = curl_easy_setopt(handle, CURLOPT_HEADERFUNCTION, CurlWriteHeaderCallback);
-            if (res != CURLE_OK) {
-                THROW(HdfsIOException, "Cannot initialize header reader for KMS: %s: %s", curl_easy_strerror(res),
-                errorString().c_str());
-            }
-            res = curl_easy_setopt(handle, CURLOPT_HEADERDATA, (void *)&header);
-            if (res != CURLE_OK) {
-                THROW(HdfsIOException, "Cannot initialize header reader data for KMS: %s: %s", curl_easy_strerror(res),
-                errorString().c_str());
-            }
+            addHeader(temp.c_str());
 
-            res = curl_easy_setopt(handle, CURLOPT_HTTPHEADER, list);
-            if (res != CURLE_OK) {
-                THROW(HdfsIOException, "Cannot initialize headers for KMS: %s: %s", curl_easy_strerror(res),
-                errorString().c_str());
-            }
-            res = curl_easy_perform(handle);
+            CURL_SETOPT_ERROR2(handle, CURLOPT_HEADERFUNCTION, CurlWriteHeaderCallback,
+                "Cannot initialize header reader for KMS: %s: %s");
 
-            long response_code;
-            res = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &response_code);
-            if (res != CURLE_OK) {
-                THROW(HdfsIOException, "Cannot get response code for KMS: %s: %s", curl_easy_strerror(res),
-                errorString().c_str());
-            }
-            if (response_code != 200) {
-                output.reset();
-                header.reset();
-                THROW(HdfsIOException, "Could not authentiate to KMS using SASL");
-            }
+            CURL_SETOPT_ERROR2(handle, CURLOPT_HEADERDATA, (void *)&header,
+                "Cannot initialize header reader data for KMS: %s: %s");
+
+            CURL_SETOPT_ERROR2(handle, CURLOPT_HTTPHEADER, list,
+                "Cannot initialize headers for KMS: %s: %s");
+
+            CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
+
+            token = header.getValue("Set-Cookie");
+            if (tokenOnly)
+                return token;
+                
         } else if (method == AuthMethod::SIMPLE) {
             // Once to get cookie for simple auth.
-            res = curl_easy_perform(handle);
-            output.reset();
-            res = curl_easy_perform(handle);
-            if (res != CURLE_OK) {
-                THROW(HdfsIOException, "Cannot initialize post data for KMS: %s: %s", curl_easy_strerror(res),
-                errorString().c_str());
+            CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
+
+            CURL_GET_RESPONSE(handle, &response_code,
+                "Cannot get response code for KMS: %s: %s");
+
+            if (response_code != 200) {
+                output.reset();
+                CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
             }
         } else {
-            res = curl_easy_perform(handle);
-            output.reset();
-            res = curl_easy_perform(handle);
-            if (res != CURLE_OK) {
-                THROW(HdfsIOException, "Cannot initialize post data for KMS: %s: %s", curl_easy_strerror(res),
-                errorString().c_str());
+            CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
+
+            CURL_GET_RESPONSE(handle, &response_code,
+                "Cannot get response code for KMS: %s: %s");
+
+            if (response_code != 200) {
+                output.reset();
+                CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
             }
         }
-        long response_code;
-        res = curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &response_code);
-        if (res != CURLE_OK) {
-            THROW(HdfsIOException, "Cannot get response code for KMS: %s: %s", curl_easy_strerror(res),
-            errorString().c_str());
-        }
+        CURL_GET_RESPONSE(handle, &response_code,
+                "Cannot get response code for KMS: %s: %s");
+
         if (response_code != 200)
             THROW(HdfsIOException, "Got invalid response from KMS: %d", (int)response_code);
 
@@ -872,13 +906,14 @@ private:
     struct curl_slist *list;
     char errbuf[CURL_ERROR_SIZE];
     BodyOutput output;
-    BodyOutput header;
+    HeaderOutput header;
     std::string url;
     RpcAuth &auth;
     AuthMethod method;
     Gsasl * ctx;
     Gsasl_session * session;
     std::string spn;
+    std::string token;
 
 };
 

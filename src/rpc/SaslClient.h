@@ -120,7 +120,7 @@ public:
     // or kms://https@dr-hadoop-master.local-dev.datarobot.com:16000/kms
     static GetDecryptedKey* getDecryptor(std::string url, RpcAuth & auth);
 
-    virtual std::string getMaterial(FileEncryption& encryption) = 0;
+    virtual std::string getMaterial(FileEncryption& encryption, bool tokenOnly = false) = 0;
 
 };
 
