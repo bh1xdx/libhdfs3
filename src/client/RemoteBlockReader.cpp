@@ -291,14 +291,6 @@ shared_ptr<PacketHeader> RemoteBlockReader::readPacketHeader() {
     }
 }
 
-std::string RemoteBlockReader::doDecrypt(const char* data, int size) {
-    if (size && encryption.getKey().length() > 0) {
-        std::string encoded = aesClient->decode(data, size);
-        return encoded;
-    }
-    return "";
-}
-
 void RemoteBlockReader::readNextPacket() {
     assert(position >= size);
     lastHeader = readPacketHeader();
@@ -343,10 +335,12 @@ void RemoteBlockReader::readNextPacket() {
 
         // decrypt after checksum
         char *data = (&buffer[0]) + checksumLen;
-        std::string decoded = doDecrypt(data, dataSize);
-        if (decoded.length()) {
+        std::string decoded;
+        if (size && encryption.getKey().length() > 0) {
+            decoded = aesClient->decode(data, dataSize);
             memcpy(data, decoded.c_str(), dataSize);
         }
+
         /*
          * skip checksum
          */

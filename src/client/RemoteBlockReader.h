@@ -91,7 +91,6 @@ private:
 
     void setupReader(SessionConfig& conf);
     void cleanupSocket();
-    std::string doDecrypt(const char* data, int size);
 
 private:
     bool sentStatus;

@@ -301,22 +301,16 @@ void OutputStreamImpl::append(const char * buf, int64_t size) {
     }
 }
 
-std::string OutputStreamImpl::doEncrypt(const char* buf, int64_t size)
-{
-    if (size && fileStatus.getEncryption().getKey().length() > 0) {
-        std::string encoded = aesClient->encode(buf, size);
-        return encoded;
-    }
-    return "";
-}
 
 void OutputStreamImpl::appendInternal(const char * buf, int64_t size) {
     int64_t todo = size;
 
-    std::string encoded = doEncrypt(buf, size);
-    if (encoded.length()) {
+    std::string encoded;
+    if (size && fileStatus.getEncryption().getKey().length() > 0) {
+        encoded = aesClient->encode(buf, size);
         buf = encoded.c_str();
     }
+
     while (todo > 0) {
         int batch = buffer.size() - position;
         batch = batch < todo ? batch : static_cast<int>(todo);

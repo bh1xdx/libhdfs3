@@ -128,8 +128,6 @@ private:
     void sendPacket(shared_ptr<Packet> packet);
     void setupPipeline();
 
-    std::string doEncrypt(const char* buf, int64_t size);
-
 private:
     //atomic<bool> heartBeatStop;
     bool closed;

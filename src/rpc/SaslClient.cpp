@@ -850,7 +850,7 @@ public:
             token = header.getValue("Set-Cookie");
             if (tokenOnly)
                 return token;
-                
+
         } else if (method == AuthMethod::SIMPLE) {
             // Once to get cookie for simple auth.
             CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
