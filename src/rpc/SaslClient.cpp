@@ -577,11 +577,6 @@ public:
          }
     }
 
-    void print() {
-        for (std::map<std::string, std::string>::iterator it=headers.begin(); it!=headers.end(); ++it)
-            std::cout << it->first << " => " << it->second << '\n';
-    }
-
     void reset() {
         headers.clear();
     }
