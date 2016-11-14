@@ -220,7 +220,14 @@ static FileSystemWrapper * ConnectInternal(const char * uri,
     if (token) {
         key.addToken(*token);
     }
-
+    SessionConfig sconf(conf);
+    AuthMethod auth = RpcAuth::ParseMethod(sconf.getKmsMethod());
+    const std::string &kmstoken = sconf.getKmsToken();
+    if (auth != AuthMethod::SIMPLE && kmstoken.length() > 0) {
+        Token t;
+        t.setKmsToken(kmstoken);
+        key.addToken(t);
+    }
     return new FileSystemWrapper(shared_ptr<FileSystemInter>(new FileSystemImpl(key, conf)));
 }
 
@@ -556,6 +563,14 @@ bool FileSystem::truncate(const char * src, int64_t size) {
     }
 
     return impl->filesystem->truncate(src, size);
+}
+
+std::string FileSystem::getKmsToken() {
+    if (!impl) {
+        THROW(HdfsIOException, "FileSystem: not connected.");
+    }
+
+    return impl->filesystem->getKmsToken();
 }
 
 std::string FileSystem::getDelegationToken(const char * renewer) {

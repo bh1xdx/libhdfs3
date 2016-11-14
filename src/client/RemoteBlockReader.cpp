@@ -51,7 +51,8 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
                                      PeerCache& peerCache, int64_t start,
                                      int64_t len, const Token& token,
                                      const char* clientName, bool verify,
-                                     SessionConfig& conf)
+                                     SessionConfig& conf, FileEncryption& encryption,
+                                     shared_ptr<AESClient> aesClient)
     : sentStatus(false),
       verify(verify),
       binfo(eb),
@@ -64,7 +65,9 @@ RemoteBlockReader::RemoteBlockReader(shared_ptr<FileSystemInter> filesystem,
       endOffset(len + start),
       lastSeqNo(-1),
       peerCache(peerCache),
-      filesystem(filesystem) {
+      filesystem(filesystem),
+      encryption(encryption),
+      aesClient(aesClient) {
 
     assert(start >= 0);
     readTimeout = conf.getInputReadTimeout();
@@ -318,6 +321,7 @@ void RemoteBlockReader::readNextPacket() {
             memcpy(&buffer[0], &rest[0], size);
             reader->reduceRest(size);
         }
+
         lastSeqNo = lastHeader->getSeqno();
 
         if (lastHeader->getPacketLen() != static_cast<int>(sizeof(int32_t)) + dataSize + checksumLen) {
@@ -327,6 +331,14 @@ void RemoteBlockReader::readNextPacket() {
 
         if (verify) {
             verifyChecksum(chunks);
+        }
+
+        // decrypt after checksum
+        char *data = (&buffer[0]) + checksumLen;
+        std::string decoded;
+        if (size && encryption.getKey().length() > 0) {
+            decoded = aesClient->decode(data, dataSize);
+            memcpy(data, decoded.c_str(), dataSize);
         }
 
         /*

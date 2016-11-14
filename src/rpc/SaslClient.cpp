@@ -31,6 +31,16 @@
 #include "Exception.h"
 #include "ExceptionInternal.h"
 #include "SaslClient.h"
+#include <curl/curl.h>
+#include <string>
+#include <sstream>
+#include <map>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
+
+using boost::property_tree::ptree;
+using boost::property_tree::read_json;
+using boost::property_tree::write_json;
 
 #define SASL_SUCCESS 0
 
@@ -266,6 +276,8 @@ std::string Base64Encode(const std::string & in) {
     int rc = gsasl_base64_to(in.c_str(), in.size(), &temp, &len);
 
     if (rc != GSASL_OK) {
+        if (rc == GSASL_BASE64_ERROR)
+            THROW(HdfsIOException, "SaslClient: Failed to encode string to base64");
         throw std::bad_alloc();
     }
 
@@ -276,6 +288,30 @@ std::string Base64Encode(const std::string & in) {
 
     if (!temp || retval.length() != len) {
         THROW(HdfsIOException, "SaslClient: Failed to encode string to base64");
+    }
+
+    return retval;
+}
+
+std::string Base64Decode(const std::string & in) {
+    char * temp;
+    size_t len;
+    std::string retval;
+    int rc = gsasl_base64_from(in.c_str(), in.size(), &temp, &len);
+
+    if (rc != GSASL_OK) {
+        if (rc == GSASL_BASE64_ERROR)
+            THROW(HdfsIOException, "SaslClient: Failed to decode string to base64");
+        throw std::bad_alloc();
+    }
+
+    if (temp) {
+        retval.assign(temp, len);
+        free(temp);
+    }
+
+    if (!temp || retval.length() != len) {
+        THROW(HdfsIOException, "SaslClient: Failed to decode string to base64");
     }
 
     return retval;
@@ -453,6 +489,478 @@ bool SaslClient::isIntegrity() {
     return integrity;
 }
 
+
+
+class BodyOutput {
+public:
+    void append(void *data, size_t size) {
+        output.append((const char*)data, size);
+    }
+
+    void reset() {
+        output = "";
+    }
+
+    ptree fromJson() {
+        ptree pt2;
+        std::istringstream is (output);
+        try {
+            read_json (is, pt2);
+            return pt2;
+        } catch (const boost::exception & e)
+        {
+            THROW(HdfsIOException, "Error parsing KMS data as JSON");
+        }
+    }
+    std::string toJson(ptree &data) {
+        std::ostringstream buf;
+        try {
+            write_json (buf, data, false);
+            std::string json = buf.str();
+            return json;
+        } catch (const boost::exception & e)
+        {
+            THROW(HdfsIOException, "Error converting KMS data to JSON");
+        }
+    }
+private:
+    std::string output;
+};
+
+class HeaderOutput {
+public:
+    void append(char *data, size_t size) {
+        char *ptr = (char*) memchr(data, ':', size);
+        if (ptr) {
+            int idx = ptr-data;
+            std::string key;
+            key.assign(data, idx);
+            std::string value;
+            int offset = 1;
+            if (*(ptr+1) == ' ')
+                offset += 1;
+            value.assign(ptr+offset, size-idx-offset);
+
+            size_t last = value.find_last_not_of("\r\n");
+            if (last == value.npos)
+                value = "";
+            else
+                value =  value.substr(0, (last+1));
+
+            headers[key] = value;
+
+            if (key == "Set-Cookie") {
+                std::string auth_cookie = "hadoop.auth";
+                std::string auth_cookie_eq = auth_cookie + "=";
+                int pos = value.find(auth_cookie_eq);
+                if (pos != (int)value.npos) {
+                    std::string token = value.substr(pos+auth_cookie_eq.length());
+                    int separator = token.find(";");
+                    if (separator != (int)token.npos) {
+                        token = token.substr(0, separator);
+                    }
+                    kmsToken = token;
+                }
+            }
+        }
+    }
+
+    std::string& getKmsToken() {
+        return kmsToken;
+    }
+
+    std::string& getValue(const char* key) {
+         try {
+            return headers.at(key);
+         } catch (std::out_of_range & oor) {
+            THROW(HdfsIOException, "Cannot find key in HTTP headers for KMS: %s", key);
+         }
+    }
+
+    void print() {
+        for (std::map<std::string, std::string>::iterator it=headers.begin(); it!=headers.end(); ++it)
+            std::cout << it->first << " => " << it->second << '\n';
+    }
+
+    void reset() {
+        headers.clear();
+    }
+
+private:
+    std::map<std::string, std::string> headers;
+    std::string kmsToken;
+};
+
+std::string parse_url(std::string data) {
+    std::string start = "kms://";
+    std::string http = "http@";
+    std::string https = "https@";
+    if (data.compare(0, start.length(), start) == 0) {
+        start = data.substr(start.length());
+        if (start.compare(0, http.length(), http) == 0) {
+            return "http://" + start.substr(http.length());
+        }
+        else if (start.compare(0, https.length(), https) == 0) {
+            return "https://" + start.substr(https.length());
+        }
+        else
+            THROW(HdfsIOException, "Bad KMS provider URL: %s", data.c_str());
+    }
+    else
+        THROW(HdfsIOException, "Bad KMS provider URL: %s", data.c_str());
+
+}
+
+#define CURL_SETOPT(handle, option, optarg, fmt, ...) \
+    res = curl_easy_setopt(handle, option, optarg); \
+    if (res != CURLE_OK) { \
+        THROW(HdfsIOException, fmt, ##__VA_ARGS__); \
+    }
+
+#define CURL_SETOPT_ERROR1(handle, option, optarg, fmt) \
+    CURL_SETOPT(handle, option, optarg, fmt, curl_easy_strerror(res));
+
+#define CURL_SETOPT_ERROR2(handle, option, optarg, fmt) \
+    CURL_SETOPT(handle, option, optarg, fmt, curl_easy_strerror(res), \
+        errorString().c_str())
+
+#define CURL_PERFORM(handle, fmt) \
+    res = curl_easy_perform(handle); \
+    if (res != CURLE_OK) { \
+        THROW(HdfsIOException, fmt, curl_easy_strerror(res), errorString().c_str()); \
+    }
+
+
+#define CURL_GETOPT_ERROR2(handle, option, optarg, fmt) \
+    res = curl_easy_getinfo(handle, option, optarg); \
+    if (res != CURLE_OK) { \
+        THROW(HdfsIOException, fmt, curl_easy_strerror(res), errorString().c_str()); \
+    }
+
+#define CURL_GET_RESPONSE(handle, code, fmt) \
+    CURL_GETOPT_ERROR2(handle, CURLINFO_RESPONSE_CODE, code, fmt);
+
+class GetDecryptedKeyImpl : public GetDecryptedKey {
+public:
+    GetDecryptedKeyImpl(std::string url, RpcAuth & auth): handle(NULL), list(NULL), url(parse_url(url)),
+     auth(auth), ctx(NULL), session(NULL) {
+        if (!initialized) {
+            initialized = true;
+            CURLcode ret = curl_global_init(CURL_GLOBAL_ALL);
+            if (ret) {
+                 THROW(HdfsIOException, "Cannot initialize curl client for KMS");
+            }
+        }
+        handle = curl_easy_init();
+        if (!handle)
+            THROW(HdfsIOException, "Cannot initialize curl handle for KMS");
+
+        CURLcode res;
+        CURL_SETOPT_ERROR1(handle, CURLOPT_ERRORBUFFER, errbuf,
+            "Cannot initialize curl error buffer for KMS: %s");
+
+        errbuf[0] = 0;
+        CURL_SETOPT_ERROR2(handle, CURLOPT_SSL_VERIFYPEER, 0,
+            "Cannot initialize SSL no verify for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_NOPROGRESS, 1,
+            "Cannot initialize no progress for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_VERBOSE, 0,
+            "Cannot initialize no verbose for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_COOKIEFILE, "",
+            "Cannot initialize cookie behavior for KMS: %s: %s");
+
+        addHeader("Content-Type: application/json");
+        addHeader("Accept: *");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_HTTPHEADER, list,
+            "Cannot initialize headers for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_WRITEFUNCTION, CurlWriteMemoryCallback,
+            "Cannot initialize body reader for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_WRITEDATA, (void *)&output,
+            "Cannot initialize body reader data for KMS: %s: %s");
+
+        /* some servers don't like requests that are made without a user-agent
+            field, so we provide one */
+        CURL_SETOPT_ERROR2(handle, CURLOPT_USERAGENT, "libcurl-agent/1.0",
+            "Cannot initialize user agent for KMS: %s: %s");
+
+        method = auth.getMethod();
+        if (method == AuthMethod::KERBEROS) {
+            initKerberos();
+        }
+    }
+
+    void addHeader(const char* headervalue) {
+        list = curl_slist_append(list, headervalue);
+        if (!list) {
+            THROW(HdfsIOException, "Cannot add header for KMS");
+        }
+    }
+
+    void initKerberos() {
+        int rc = gsasl_init(&ctx);
+
+        if (rc != GSASL_OK) {
+            THROW(HdfsIOException, "cannot initialize libgsasl");
+        }
+        /* Create new authentication session. */
+        if ((rc = gsasl_client_start(ctx, "GSSAPI", &session)) != GSASL_OK) {
+            THROW(HdfsIOException, "Cannot initialize client (%d): %s", rc,
+                  gsasl_strerror(rc));
+        }
+        std::string principal = auth.getUser().getPrincipal();
+        gsasl_property_set(session, GSASL_AUTHID, principal.c_str());
+
+        std::string http = "http://";
+        std::string https = "https://";
+        std::string host = "";
+
+        if (url.compare(0, http.length(), http) == 0)
+            host = url.substr(http.length());
+        else
+            host = url.substr(https.length());
+        size_t pos = host.find(":");
+        if (pos != host.npos) {
+            host = host.substr(0, pos);
+        }
+        gsasl_property_set(session, GSASL_HOSTNAME, host.c_str());
+
+        spn = "HTTP";
+        gsasl_property_set(session, GSASL_SERVICE, spn.c_str());
+}
+
+    ~GetDecryptedKeyImpl() {
+        if (list)
+            curl_slist_free_all(list);
+        if (handle)
+            curl_easy_cleanup(handle);
+
+        if (session != NULL) {
+            gsasl_finish(session);
+            session = NULL;
+        }
+
+        if (ctx != NULL) {
+            gsasl_done(ctx);
+            ctx = NULL;
+        }
+
+    }
+    std::string errorString() {
+        if (strlen(errbuf) == 0)
+            return "";
+        return errbuf;
+    }
+
+    static size_t
+    CurlWriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
+    {
+      size_t realsize = size * nmemb;
+      BodyOutput *mem = (BodyOutput*)userp;
+
+      mem->append(contents, realsize);
+      return realsize;
+    }
+
+    static size_t
+    CurlWriteHeaderCallback(char *contents, size_t size, size_t nmemb, void *userp)
+    {
+      size_t realsize = size * nmemb;
+      HeaderOutput *mem = (HeaderOutput*)userp;
+
+      mem->append(contents, realsize);
+      return realsize;
+    }
+
+    std::string escape(std::string value) {
+        char *output = curl_easy_escape(handle, value.c_str(), value.length());
+        if(output) {
+            std::string ret = output;
+            curl_free(output);
+            return ret;
+        } else {
+            THROW(HdfsIOException, "Cannot convert URL to escaped version for KMS: %s", value.c_str());
+        }
+    }
+    std::string build_url(std::string name) {
+
+        std::string base = url + "/v1/keyversion/" + escape(name);
+        base = base + "/_eek?eek_op=decrypt";
+
+        if (method == AuthMethod::KERBEROS) {
+            return base;
+        } else if (method == AuthMethod::SIMPLE) {
+            std::string user = auth.getUser().getRealUser();
+            if (user.length() == 0)
+                user = auth.getUser().getKrbName();
+            return base + "&user.name=" + user;
+
+        }
+        else {
+            return base;
+        }
+
+    }
+
+    std::string getMaterial(FileEncryption& encryption,  bool tokenOnly = false) {
+        CURLcode res;
+        std:: string curl = build_url(encryption.getEzKeyVersionName());
+        CURL_SETOPT_ERROR2(handle, CURLOPT_URL, curl.c_str(),
+            "Cannot initialize url for KMS: %s: %s");
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_POST, 1,
+            "Cannot initialize post for KMS: %s: %s");
+
+        ptree map;
+        long response_code;
+        map.put("iv", Base64Encode(encryption.getIv()));
+        map.put("name", encryption.getKeyName());
+        map.put("material", Base64Encode(encryption.getKey()));
+        std::string data = output.toJson(map);
+
+        CURL_SETOPT_ERROR2(handle, CURLOPT_COPYPOSTFIELDS, data.c_str(),
+            "Cannot initialize post data for KMS: %s: %s");
+
+        if (method == AuthMethod::KERBEROS) {
+            int rc;
+            char * outputStr = NULL;
+            size_t outputSize;
+            std::string retval;
+            std::string challenge = "";
+            rc = gsasl_step(session, &challenge[0], challenge.size(), &outputStr,
+                            &outputSize);
+            if (rc == GSASL_GSSAPI_INIT_SEC_CONTEXT_ERROR && method == AuthMethod::KERBEROS) {
+                // Try again using principal instead
+                gsasl_finish(session);
+                initKerberos();
+                gsasl_property_set(session, GSASL_GSSAPI_DISPLAY_NAME, auth.getUser().getPrincipal().c_str());
+                rc = gsasl_step(session, &challenge[0], challenge.size(), &outputStr,
+                            &outputSize);
+            }
+            if (rc != GSASL_OK && rc != GSASL_NEEDS_MORE)
+                THROW(AccessControlException, "Failed to negotiate with KMS: %s", gsasl_strerror(rc));
+
+            retval.resize(outputSize);
+            memcpy(&retval[0], outputStr, outputSize);
+
+            if (outputStr) {
+                free(outputStr);
+            }
+            std::string temp;
+            std::string encoded = Base64Encode(retval);
+            std::replace(encoded.begin(), encoded.end(), '+', '-');
+            std::replace(encoded.begin(), encoded.end(), '/', '_');
+            temp = "Authorization: Negotiate " + encoded;
+            addHeader(temp.c_str());
+
+            CURL_SETOPT_ERROR2(handle, CURLOPT_HEADERFUNCTION, CurlWriteHeaderCallback,
+                "Cannot initialize header reader for KMS: %s: %s");
+
+            CURL_SETOPT_ERROR2(handle, CURLOPT_HEADERDATA, (void *)&header,
+                "Cannot initialize header reader data for KMS: %s: %s");
+
+            CURL_SETOPT_ERROR2(handle, CURLOPT_HTTPHEADER, list,
+                "Cannot initialize headers for KMS: %s: %s");
+
+            CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
+
+            token = header.getKmsToken();
+
+            if (tokenOnly)
+                return token;
+
+        } else if (method == AuthMethod::SIMPLE) {
+            // Once to get cookie for simple auth.
+            CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
+
+            CURL_GET_RESPONSE(handle, &response_code,
+                "Cannot get response code for KMS: %s: %s");
+
+            if (response_code != 200) {
+                output.reset();
+                CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
+            }
+        } else {
+
+            const Token *ptr = auth.getUser().selectToken("kms-dt", "kms");
+            if (!ptr)
+                THROW(HdfsIOException, "Can't find provided KMS token");
+            std::string auth_cookie = "hadoop.auth";
+            std::string auth_cookie_eq = auth_cookie + "=";
+            std::string kmsToken = ptr->getIdentifier();
+
+            if (kmsToken.length() == 0)
+                 THROW(HdfsIOException, "KMS Token not set");
+
+            if (kmsToken[0] != '"') {
+                kmsToken = "\"" + kmsToken + "\"";
+            }
+            std::string temp = "Cookie: " + auth_cookie_eq + kmsToken;
+            addHeader(temp.c_str());
+            CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
+
+            CURL_GET_RESPONSE(handle, &response_code,
+                "Cannot get response code for KMS: %s: %s");
+
+            if (response_code != 200) {
+                output.reset();
+                CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
+            }
+        }
+        CURL_GET_RESPONSE(handle, &response_code,
+                "Cannot get response code for KMS: %s: %s");
+
+        if (response_code != 200)
+            THROW(HdfsIOException, "Got invalid response from KMS: %d", (int)response_code);
+
+        map = output.fromJson();
+
+        try {
+            data = map.get<std::string> ("material");
+        } catch (const boost::exception & e)
+        {
+            THROW(HdfsIOException, "Error converting KMS response to decrypted key");
+        }
+        int rem = data.length() % 4;
+        if (rem) {
+            rem = 4 - rem;
+            while (rem != 0 ) {
+                data = data + "=";
+                rem -= 1;
+            }
+        }
+        std::replace(data.begin(), data.end(), '-', '+');
+        std::replace(data.begin(), data.end(), '_', '/');
+        return Base64Decode(data);
+    }
+
+private:
+    static bool initialized;
+    CURL *handle;
+    struct curl_slist *list;
+    char errbuf[CURL_ERROR_SIZE];
+    BodyOutput output;
+    HeaderOutput header;
+    std::string url;
+    RpcAuth &auth;
+    AuthMethod method;
+    Gsasl * ctx;
+    Gsasl_session * session;
+    std::string spn;
+    std::string token;
+
+};
+
+bool GetDecryptedKeyImpl::initialized = false;
+
+GetDecryptedKey* GetDecryptedKey::getDecryptor(std::string url, RpcAuth & auth) {
+    return new GetDecryptedKeyImpl(url, auth);
+}
 }
 }
 

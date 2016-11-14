@@ -25,72 +25,84 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef _HDFS_LIBHDFS3_CLIENT_TOKEN_H_
-#define _HDFS_LIBHDFS3_CLIENT_TOKEN_H_
+#ifndef _HDFS_LIBHDFS3_SERVER_FILEENCRYPTION_H_
+#define _HDFS_LIBHDFS3_SERVER_FILEENCRYPTION_H_
 
 #include <string>
 
 namespace Hdfs {
 namespace Internal {
 
-class Token {
+/**
+ * Identifies file encryption info
+ */
+class FileEncryption {
 public:
-    const std::string & getIdentifier() const {
-        return identifier;
+    FileEncryption() :
+        cryptoProtocolVersion(0), suite(0) {
     }
 
-    void setIdentifier(const std::string & identifier) {
-        this->identifier = identifier;
+    int getCryptoProtocolVersion() const {
+        return cryptoProtocolVersion;
     }
 
-    const std::string & getKind() const {
-        return kind;
+    void setCryptoProtocolVersion(int cryptoProtocolVersion) {
+        this->cryptoProtocolVersion = cryptoProtocolVersion;
     }
 
-    void setKind(const std::string & kind) {
-        this->kind = kind;
+    int64_t getSuite() const {
+        return suite;
     }
 
-    const std::string & getPassword() const {
-        return password;
+    void setSuite(int suite) {
+        this->suite = suite;
     }
 
-    void setPassword(const std::string & password) {
-        this->password = password;
+    const std::string & getKey() const {
+        return key;
     }
 
-    const std::string & getService() const {
-        return service;
+    void setKey(const std::string & key) {
+        this->key = key;
     }
 
-    void setService(const std::string & service) {
-        this->service = service;
+    const std::string & getIv() const {
+        return iv;
     }
 
-    bool operator ==(const Token & other) const {
-        return identifier == other.identifier && password == other.password
-               && kind == other.kind && service == other.service;
+    void setIv(const std::string & iv) {
+        this->iv = iv;
     }
 
-    void setKmsToken(const std::string & str) {
-        kind = "kms-dt";
-        service = "kms";
-        identifier = str;
+    const std::string & getKeyName() const {
+        return keyName;
     }
-    std::string toString() const;
 
-    Token & fromString(const std::string & str);
+    void setKeyName(const std::string & keyName) {
+        this->keyName = keyName;
+    }
 
-    size_t hash_value() const;
+    const std::string & getEzKeyVersionName() const {
+        return ezKeyVersionName;
+    }
+
+    void setEzKeyVersionName(const std::string & ezKeyVersionName) {
+        this->ezKeyVersionName = ezKeyVersionName;
+    }
+
 
 private:
-    std::string identifier;
-    std::string password;
-    std::string kind;
-    std::string service;
+    int cryptoProtocolVersion;
+    int suite;
+
+    std::string key;
+    std::string iv;
+    std::string keyName;
+    std::string ezKeyVersionName;
+
 };
 
 }
 }
 
-#endif /* _HDFS_LIBHDFS3_CLIENT_TOKEN_H_ */
+#endif /* _HDFS_LIBHDFS3_SERVER_FILEENCRYPTIONY_H_ */

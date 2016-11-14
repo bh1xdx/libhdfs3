@@ -50,10 +50,11 @@ namespace Internal {
 
 PipelineImpl::PipelineImpl(bool append, const char * path, SessionConfig & conf,
                            shared_ptr<FileSystemInter> filesystem, int checksumType, int chunkSize,
-                           int replication, int64_t bytesSent, PacketPool & packetPool, shared_ptr<LocatedBlock> lastBlock) :
+                           int replication, int64_t bytesSent, PacketPool & packetPool, shared_ptr<LocatedBlock> lastBlock,
+                           FileEncryption & encryption) :
     config(conf), checksumType(checksumType), chunkSize(chunkSize), errorIndex(-1), replication(replication), bytesAcked(
         bytesSent), bytesSent(bytesSent), packetPool(packetPool), filesystem(filesystem), lastBlock(lastBlock), path(
-            path) {
+            path), encryption(encryption) {
     canAddDatanode = conf.canAddDatanode();
     canAddDatanodeBest = conf.canAddDatanodeBest();
     blockWriteRetry = conf.getBlockWriteRetry();

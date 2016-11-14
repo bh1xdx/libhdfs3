@@ -150,9 +150,12 @@ SessionConfig::SessionConfig(const Config & conf) {
     ConfigDefault<std::string> strValues [] = {
         {&defaultUri, "dfs.default.uri", "hdfs://localhost:9000" },
         {&rpcAuthMethod, "hadoop.security.authentication", "simple" },
+        {&kmsAuthMethod, "hadoop.kms.authentication.type", "simple" },
+        {&kmsAuthToken, "hadoop.kms.authentication.token", "" },
         {&kerberosCachePath, "hadoop.security.kerberos.ticket.cache.path", "" },
         {&logSeverity, "dfs.client.log.severity", "INFO" },
-        {&domainSocketPath, "dfs.domain.socket.path", ""}
+        {&domainSocketPath, "dfs.domain.socket.path", ""},
+        {&kmsUrl, "dfs.encryption.key.provider.uri", ""}
     };
 
     for (size_t i = 0; i < ARRAYSIZE(boolValues); ++i) {

@@ -30,6 +30,7 @@
 
 #include "LocatedBlock.h"
 #include "Memory.h"
+#include "FileEncryption.h"
 
 #include <cassert>
 
@@ -59,6 +60,8 @@ public:
     virtual const LocatedBlock * findBlock(int64_t position) = 0;
 
     virtual std::vector<LocatedBlock> & getBlocks() = 0;
+
+    virtual FileEncryption& getEncryption() = 0;
 };
 
 /**
@@ -105,12 +108,17 @@ public:
         return blocks;
     }
 
+   FileEncryption& getEncryption() {
+        return encryption;
+   }
+
 private:
     bool lastBlockComplete;
     bool underConstruction;
     int64_t fileLength;
     shared_ptr<LocatedBlock> lastBlock;
     std::vector<LocatedBlock> blocks;
+    FileEncryption encryption;
 
 };
 

@@ -34,6 +34,7 @@
 #include "network/Socket.h"
 #include "RpcAuth.h"
 #include "RpcHeader.pb.h"
+#include "server/FileEncryption.h"
 #include <openssl/conf.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
@@ -107,6 +108,20 @@ private:
     const Token theToken;
     const std::string thePrincipal;
     bool encryptedData;
+};
+
+
+class GetDecryptedKey {
+public:
+    virtual ~GetDecryptedKey() {}
+
+    // url will be something like:
+    // kms://http@dr-hadoop-master.local-dev.datarobot.com:16000/kms
+    // or kms://https@dr-hadoop-master.local-dev.datarobot.com:16000/kms
+    static GetDecryptedKey* getDecryptor(std::string url, RpcAuth & auth);
+
+    virtual std::string getMaterial(FileEncryption& encryption, bool tokenOnly = false) = 0;
+
 };
 
 }

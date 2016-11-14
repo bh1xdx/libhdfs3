@@ -41,6 +41,8 @@
 #include "FileSystemInter.h"
 #include "SessionConfig.h"
 #include "DataReader.h"
+#include "rpc/SaslClient.h"
+
 
 
 namespace Hdfs {
@@ -52,7 +54,8 @@ public:
                       const ExtendedBlock& eb, DatanodeInfo& datanode,
                       PeerCache& peerCache, int64_t start, int64_t len,
                       const Token& token, const char* clientName, bool verify,
-                      SessionConfig& conf);
+                      SessionConfig& conf, FileEncryption& encryption,
+                      shared_ptr<AESClient> aesClient);
 
     ~RemoteBlockReader();
 
@@ -113,6 +116,8 @@ private:
     shared_ptr<Socket> sock;
     std::vector<char> buffer;
     shared_ptr<FileSystemInter> filesystem;
+    FileEncryption& encryption;
+    shared_ptr<AESClient> aesClient;
 };
 
 }

@@ -41,6 +41,7 @@
 #include "SessionConfig.h"
 #include "Thread.h"
 #include "DataTransferProtocolSender.h"
+#include "server/FileEncryption.h"
 
 #include <vector>
 #include <deque>
@@ -134,7 +135,7 @@ public:
     PipelineImpl(bool append, const char * path, SessionConfig & conf,
                  shared_ptr<FileSystemInter> filesystem, int checksumType, int chunkSize,
                  int replication, int64_t bytesSent, PacketPool & packetPool,
-                 shared_ptr<LocatedBlock> lastBlock);
+                 shared_ptr<LocatedBlock> lastBlock, FileEncryption & encryption);
 
     /**
      * send all data and wait for all ack.
@@ -198,6 +199,7 @@ private:
     std::string path;
     std::vector<DatanodeInfo> nodes;
     std::vector<std::string> storageIDs;
+    FileEncryption & encryption;
 
 };
 
