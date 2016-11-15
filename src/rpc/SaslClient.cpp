@@ -782,10 +782,15 @@ public:
             THROW(HdfsIOException, "Cannot convert URL to escaped version for KMS: %s", value.c_str());
         }
     }
-    std::string build_url(std::string name) {
+    std::string build_url(std::string name, bool tokenOnly) {
 
-        std::string base = url + "/v1/keyversion/" + escape(name);
-        base = base + "/_eek?eek_op=decrypt";
+        std::string base = url;
+        if (tokenOnly)
+            base = url + "/v1/?op=GETDELEGATIONTOKEN";
+        else {
+            base = url + "/v1/keyversion/" + escape(name);
+            base = base + "/_eek?eek_op=decrypt";
+        }
 
         if (method == AuthMethod::KERBEROS) {
             return base;
@@ -804,12 +809,18 @@ public:
 
     std::string getMaterial(FileEncryption& encryption,  bool tokenOnly = false) {
         CURLcode res;
-        std:: string curl = build_url(encryption.getEzKeyVersionName());
+        std:: string curl = build_url(encryption.getEzKeyVersionName(), tokenOnly);
+
         CURL_SETOPT_ERROR2(handle, CURLOPT_URL, curl.c_str(),
             "Cannot initialize url for KMS: %s: %s");
 
-        CURL_SETOPT_ERROR2(handle, CURLOPT_POST, 1,
-            "Cannot initialize post for KMS: %s: %s");
+        if (tokenOnly) {
+            CURL_SETOPT_ERROR2(handle, CURLOPT_POST, 0,
+                "Cannot initialize post for KMS: %s: %s");
+        } else {
+            CURL_SETOPT_ERROR2(handle, CURLOPT_POST, 1,
+                "Cannot initialize post for KMS: %s: %s");
+        }
 
         ptree map;
         long response_code;
@@ -818,8 +829,10 @@ public:
         map.put("material", Base64Encode(encryption.getKey()));
         std::string data = output.toJson(map);
 
-        CURL_SETOPT_ERROR2(handle, CURLOPT_COPYPOSTFIELDS, data.c_str(),
-            "Cannot initialize post data for KMS: %s: %s");
+        if (!tokenOnly) {
+            CURL_SETOPT_ERROR2(handle, CURLOPT_COPYPOSTFIELDS, data.c_str(),
+                "Cannot initialize post data for KMS: %s: %s");
+        }
 
         if (method == AuthMethod::KERBEROS) {
             int rc;
@@ -864,10 +877,23 @@ public:
 
             CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
 
-            token = header.getKmsToken();
+            if (tokenOnly) {
+                CURL_GET_RESPONSE(handle, &response_code,
+                "Cannot get response code for KMS: %s: %s");
 
-            if (tokenOnly)
+                if (response_code != 200) {
+                    THROW(HdfsIOException, "KMS Token not gotten: %ld", response_code);
+                }
+                map = output.fromJson();
+
+                try {
+                    token = map.get<std::string> ("Token.urlString");
+                } catch (const boost::exception & e)
+                {
+                    THROW(HdfsIOException, "Error converting KMS response to token");
+                }
                 return token;
+            }
 
         } else if (method == AuthMethod::SIMPLE) {
             // Once to get cookie for simple auth.
@@ -892,10 +918,7 @@ public:
             if (kmsToken.length() == 0)
                  THROW(HdfsIOException, "KMS Token not set");
 
-            if (kmsToken[0] != '"') {
-                kmsToken = "\"" + kmsToken + "\"";
-            }
-            std::string temp = "Cookie: " + auth_cookie_eq + kmsToken;
+            std::string temp = "X-Hadoop-Delegation-Token: " + kmsToken;
             addHeader(temp.c_str());
             CURL_PERFORM(handle, "Could not send request to KMS: %s %s");
 
