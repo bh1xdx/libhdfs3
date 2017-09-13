@@ -62,7 +62,7 @@ public:
     DataTransferProtocolSender(Socket & sock, int writeTimeout,
                                const std::string & datanodeAddr,
                                bool secure, bool token, EncryptionKey& key,
-                               int32_t cryptoBufferSize);
+                               int32_t cryptoBufferSize, int32_t protection);
 
     virtual ~DataTransferProtocolSender();
 
@@ -155,6 +155,7 @@ private:
     SaslClient *saslClient;
     EncryptionKey theKey;
     int32_t cryptoBufferSize;
+    int32_t protection;
 };
 
 }

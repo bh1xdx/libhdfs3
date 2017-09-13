@@ -141,6 +141,12 @@ SessionConfig::SessionConfig(const Config & conf) {
         }, {
             &cryptoBufferSize, "hadoop.security.crypto.buffer.size", 8192,
         }
+        , {
+            &rpcProtection, "hadoop.rpc.protection", 0,
+        }
+        , {
+            &dataProtection, "dfs.data.transfer.protection", 0,
+        }
     };
     ConfigDefault<int64_t> i64Values [] = {
         {
