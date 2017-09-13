@@ -198,10 +198,11 @@ std::string AESClient::decode(const char *input, size_t input_len) {
 
 
 SaslClient::SaslClient(const RpcSaslProto_SaslAuth & auth, const Token & token,
-                       const std::string & principal, bool encryptedData) :
+                       const std::string & principal, bool encryptedData, int protection) :
      aes(NULL), ctx(NULL), session(NULL), changeLength(false), complete(false),
      privacy(false), integrity(false),
-     theAuth(auth), theToken(token), thePrincipal(principal), encryptedData(encryptedData)   {
+     theAuth(auth), theToken(token), thePrincipal(principal), encryptedData(encryptedData) ,
+       protection(protection) {
     int rc;
     ctx = NULL;
     RpcAuth method = RpcAuth(RpcAuth::ParseMethod(auth.method()));
@@ -396,6 +397,8 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
             int qop = (int)decoded.c_str()[0];
             preferred = findPreferred(qop);
         }
+        if (protection != 0)
+            preferred = protection;
         if (preferred & GSASL_QOP_AUTH_CONF) {
             privacy = true;
             integrity = true;
@@ -438,7 +441,7 @@ std::string SaslClient::encode(const char *input, size_t input_len) {
 }
 
 
-std::string  SaslClient::decode(const char *input, size_t input_len, force) {
+std::string  SaslClient::decode(const char *input, size_t input_len, bool force) {
     std::string result;
     if ((!privacy && !integrity && !force) || (!complete)) {
         result.resize(input_len);

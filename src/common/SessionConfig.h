@@ -339,7 +339,19 @@ public:
       return socketCacheCapacity;
     }
 
+    int32_t getRpcProtection() const {
+        return rpcProtection;
+    }
+
+    int32_t getDataProtection() const {
+        return dataProtection;
+    }
+
 public:
+
+    int32_t rpcProtection;
+    int32_t dataProtection;
+
     /*
      * rpc configure
      */

@@ -36,7 +36,8 @@ size_t RpcConfig::hash_value() const {
     size_t values[] = { Int32Hasher(maxIdleTime), Int32Hasher(pingTimeout),
                         Int32Hasher(connectTimeout), Int32Hasher(readTimeout), Int32Hasher(
                             writeTimeout), Int32Hasher(maxRetryOnConnect), Int32Hasher(
-                            lingerTimeout), Int32Hasher(rpcTimeout), BoolHasher(tcpNoDelay)
+                            lingerTimeout), Int32Hasher(rpcTimeout), BoolHasher(tcpNoDelay),
+                            Int32Hasher(protection)
                       };
     return CombineHasher(values, sizeof(values) / sizeof(values[0]));
 }
