@@ -392,7 +392,7 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
                 preferred = qop[0];
         }
         else if (challenge.length()) {
-            std::string decoded = decode(challenge.c_str(), challenge.length());
+            std::string decoded = decode(challenge.c_str(), challenge.length(), true);
             int qop = (int)decoded.c_str()[0];
             preferred = findPreferred(qop);
         }
@@ -438,9 +438,9 @@ std::string SaslClient::encode(const char *input, size_t input_len) {
 }
 
 
-std::string  SaslClient::decode(const char *input, size_t input_len) {
+std::string  SaslClient::decode(const char *input, size_t input_len, force) {
     std::string result;
-    if ((!privacy && !integrity) || (!complete)) {
+    if ((!privacy && !integrity && !force) || (!complete)) {
         result.resize(input_len);
         memcpy(&result[0], input, input_len);
         return result;

@@ -88,7 +88,7 @@ public:
     bool isIntegrity();
 
     std::string encode(const char *input, size_t input_len);
-    std::string decode(const char *input, size_t input_len);
+    std::string decode(const char *input, size_t input_len, force=false);
 
 private:
     int findPreferred(int possible);
