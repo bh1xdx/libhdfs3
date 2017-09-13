@@ -216,7 +216,7 @@ const RpcSaslProto_SaslAuth * RpcChannelImpl::createSaslClient(
     const RpcConfig & conf = key.getConf();
     saslClient = shared_ptr<SaslClient>(
                      new SaslClient(*auth, token, key.getAuth().getUser().getPrincipal(),
-                     conf.getProtection()));
+                     false, conf.getProtection()));
     return auth;
 }
 
