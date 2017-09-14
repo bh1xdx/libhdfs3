@@ -357,6 +357,8 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
     char * output = NULL;
     size_t outputSize;
     std::string retval;
+    std::string copied_challenge = challenge;
+
     rc = gsasl_step(session, &challenge[0], challenge.size(), &output,
                     &outputSize);
     RpcAuth method = RpcAuth(RpcAuth::ParseMethod(theAuth.method()));
@@ -393,12 +395,15 @@ std::string SaslClient::evaluateChallenge(const std::string & challenge) {
                 preferred = qop[0];
         }
         else if (challenge.length()) {
-            std::string decoded = decode(challenge.c_str(), challenge.length(), true);
-            int qop = (int)decoded.c_str()[0];
-            preferred = findPreferred(qop);
+            if (protection != 0)
+                preferred = protection;
+            else {
+                std::string decoded = decode(copied_challenge.c_str(), copied_challenge.length(), true);
+                int qop = (int)decoded.c_str()[0];
+                preferred = findPreferred(qop);
+            }
         }
-        if (protection != 0)
-            preferred = protection;
+
         if (preferred & GSASL_QOP_AUTH_CONF) {
             privacy = true;
             integrity = true;
